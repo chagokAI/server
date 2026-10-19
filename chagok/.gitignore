@@ -1,0 +1,44 @@
+# Gradle / build
+.gradle/
+build/
+out/
+bin/
+*.class
+
+# Gradle Wrapper는 Git에 포함
+!gradle/wrapper/gradle-wrapper.jar
+
+# 환경변수 / 비밀 설정
+.env
+.env.*
+!.env.example
+src/main/resources/application-secret.*
+*.pem
+*.key
+*.p12
+*.jks
+
+# IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Eclipse / STS
+.classpath
+.project
+.settings/
+.factorypath
+.springBeans
+.sts4-cache/
+
+# VS Code
+.vscode/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
