@@ -1,6 +1,7 @@
 package com.skala.chagok.domain.purchase.service;
 
 import com.skala.chagok.domain.box.entity.BoxSpec;
+import com.skala.chagok.domain.box.dto.BoxSnapshot;
 import com.skala.chagok.domain.box.repository.BoxSpecRepository;
 import com.skala.chagok.domain.procurement.entity.ProcurementProposal;
 import com.skala.chagok.domain.procurement.repository.ProcurementProposalRepository;
@@ -150,6 +151,7 @@ public class PurchaseOrderService {
                         .boxSpec(boxSpecs.get(item.boxSpecId()))
                         .qty(item.qty())
                         .unitPriceKrw(item.unitPriceKrw())
+                        .boxSnapshot(BoxSnapshot.from(boxSpecs.get(item.boxSpecId())))
                         .build())
                 .toList();
         purchaseOrderItemRepository.saveAll(orderItems);

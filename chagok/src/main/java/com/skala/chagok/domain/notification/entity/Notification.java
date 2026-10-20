@@ -43,6 +43,9 @@ public class Notification {
     @Column(name = "category", length = 20)
     private String category;
 
+    @Column(name = "title", length = 200)
+    private String title;
+
     @Column(name = "message", length = 500)
     private String message;
 

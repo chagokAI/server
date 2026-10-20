@@ -8,6 +8,9 @@ public enum PurchaseOrderStatus {
     /** 승인 완료 */
     APPROVED,
 
+    /** 배송 중 */
+    IN_TRANSIT,
+
     /** 반려 */
     REJECTED,
 
