@@ -1,0 +1,59 @@
+# 로컬 개발용 인프라: 업무 DB(PostgreSQL + pgvector)와 분석 요청·결과 메시지 큐(Kafka, KRaft 단일 노드).
+# 운영 배포 구성이 아니다. 포트는 127.0.0.1에만 열어 같은 네트워크의 다른 기기에서 접근하지 못하게 한다.
+# 실행 사용자: kafka 이미지는 appuser로, postgres 이미지는 시작 스크립트가 postgres 사용자로 낮춰 실행한다.
+# 읽기 전용 루트 파일시스템은 두 이미지의 임시 쓰기 경로를 개별 허용해야 해서 개발 구성에서는 적용하지 않는다.
+# 실행: cp .env.example .env 후 필요한 값만 바꾸고 `docker compose up -d`. DB 계정 기본값은 application.yaml과 같다.
+
+name: chagok
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg17
+    environment:
+      POSTGRES_DB: ${DB_NAME:-chagok}
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD를 .env에 설정하세요}
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  kafka:
+    image: apache/kafka:4.3.1
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # HOST: 호스트에서 실행하는 Spring·DL Worker용, INTERNAL: 같은 compose 네트워크의 컨테이너용
+      KAFKA_LISTENERS: HOST://:9092,INTERNAL://:29092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: HOST://localhost:${KAFKA_PORT:-9092},INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: HOST:PLAINTEXT,INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      # 지정하지 않으면 이미지 기본값 /tmp/kafka-logs에 저장되어 컨테이너를 재생성할 때 메시지가 사라진다
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      # 단일 브로커이므로 내부 토픽 복제 계수를 1로 낮춘다
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # 토픽은 계약 합의 후 명시적으로 생성한다. 오타 토픽이 조용히 생기지 않게 자동 생성을 끈다
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    ports:
+      - "127.0.0.1:${KAFKA_PORT:-9092}:9092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:29092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+volumes:
+  postgres-data:
+  kafka-data:
