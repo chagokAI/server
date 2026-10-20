@@ -119,8 +119,8 @@ forecast:
 - items[]: 당시 boxSpec, forecastUsageQty, proposedQty, unitPriceKrw, packagingCostKrw, purchaseCostKrw
 - insights[]
 
-cost_forecast 저장 모델을 추가했다. 모델 호출·결과 생성기는 이번 조회 구현에 포함하지 않는다.
-제안·비용을 함께 생성하면 같은 jobId로 성공 결과를 한 트랜잭션에서 저장해야 한다.
+cost_forecast 저장 모델을 사용한다. 현재 실행기는 OBSERVATION_BASELINE 참고 계산으로 결과를 생성한다.
+제안·비용·작업 성공은 같은 jobId로 한 트랜잭션에서 저장한다. 학습 모델 호출은 아직 없다.
 
 ## HIST-API-01~02: 발주 이력
 
@@ -160,12 +160,51 @@ cost_forecast 저장 모델을 추가했다. 모델 호출·결과 생성기는 
 `GET W/jobs/{jobId}`:
 
 - id, targetMonth, type, status, createdAt, startedAt, completedAt, dataAsOf
-- proposalId, costForecastId, failure{code,message}, retryable, version
+- proposalId, costForecastId, failure{code,message}, retryable, version, trigger, retryOfJobId, retryJobId
 - type: PROCUREMENT_AND_COST
 - status: PENDING / RUNNING / SUCCEEDED / FAILED / PUBLISH_FAILED / TIMED_OUT
-- retryable: FAILED/PUBLISH_FAILED/TIMED_OUT일 때 true(상태상 가능 여부)
+- retryable: FAILED/PUBLISH_FAILED/TIMED_OUT이고 아직 재시도와 연결되지 않았을 때 true
+- trigger: MANUAL / SCHEDULED / RETRY (기존 기록은 null일 수 있음)
 
-작업 상태 모델과 조회만 구현했다. 접수·실행·재시도 POST·스케줄러는 후속이다.
+## JOB-API-02~03: 수동 실행·재시도
+
+`POST W/ai-jobs` — `{ "targetMonth": "2026-11", "type": "PROCUREMENT_AND_COST" }`
+
+- 대상 월은 센터 시간대의 이번 달부터 12개월 뒤까지
+- 202 응답의 data는 JobResponse, Location은 `W/jobs/{jobId}`
+- 같은 센터·대상 월·작업 종류에 활성 작업이 있으면 기존 작업 반환
+- 새로고침의 단순 재조회는 기존 GET, 새 계산 실행은 POST로 구분
+- POST 응답은 완료가 아닌 접수 결과. GET 작업 상태가 SUCCEEDED가 되면 latest 결과를 재조회
+
+`POST W/jobs/{jobId}/retry` — `{ "expectedVersion": 2 }`
+
+- 실패·전송 실패·기한 초과 상태에서만 허용. 그 외 상태 또는 버전 충돌은 409
+- 원래 실패 기록을 보존하고 새 Job을 생성, retryOfJobId/retryJobId로 연결
+- 같은 실패 작업의 재시도 요청이 반복되면 이미 연결한 Job 반환
+- 같은 범위의 다른 활성 작업이 있으면 해당 작업 반환
+
+## 정기 실행·DB 대기열
+
+- Spring 기동 중 기본 5분마다 각 센터의 이번 달·다음 달 작업을 같은 접수 서비스로 등록
+- 별도 실행기가 기본 1초마다 DB의 PENDING 작업 하나를 실행. 재기동 후에도 대기 작업 유지
+- 센터 잠금·활성 작업 유니크 키로 중복 접수를, SKIP LOCKED로 중복 실행을 방지
+- RUNNING 상태가 기본 5분을 넘기면 TIMED_OUT. 이전 실행 시도의 결과는 version 검증으로 반영 차단
+- 실패하면 마지막 성공 결과 유지. 제안·비용·작업 성공은 원자적으로 반영
+- Kafka producer/consumer, 메시지·토픽, DL 호출 로직은 변경하지 않음
+
+현재 참고 계산 방식:
+
+1. 접수 시각 직전 28일 구간의 해당 센터 SUCCEEDED 관측을 박스 규격별 집계
+2. 월 참고 수량 = 관측 수 ÷ 28 × 대상 월 일수, 올림
+3. 제안 수량 = max(0, 월 참고 수량 + 안전 재고 - 현재 재고), 기본 100개 단위 올림
+4. 포장 비용 = 월 참고 수량 × 저장 단가, 발주 비용 = 제안 수량 × 저장 단가
+
+`analysis.method=OBSERVATION_BASELINE`과 입력 기간·표본 수를 저장한다. 실제 박스 소모량·학습 예측 정확도를 의미하지 않는다.
+활성 규격이 없거나 전체 성공 관측이 없으면 실패 처리한다. 재고·안전 재고·단가 누락도 실패하며 임의의 0으로 채우지 않는다.
+절감액·전월/전년 비교는 근거가 없어 null이다. 재고 차감과 BoxSpec의 실제 소진일 갱신은 수행하지 않는다.
+
+설정: `chagok.jobs.scheduling-enabled`, `worker-enabled`, `cron`, `poll-delay`, `lookback-days`, `order-unit`, `timeout`.
+운영자 인가는 기존 AUTH 구현 후 연결해야 한다.
 
 ## 검증과 스키마
 

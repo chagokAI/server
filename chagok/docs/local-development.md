@@ -62,5 +62,17 @@ postgres-data와 kafka-data 볼륨에 데이터를 보존한다.
 실제 사진 분석을 실행할 때는 별도로 DL 서버를 띄우고 DL_BASE_URL을 지정해야 한다.
 
 DB 없이 가능한 검증만 실행하려면 `./gradlew offlineTest`를 사용한다.
-로컬 DB를 실행했다고 해서 예측 배치·수동 재계산 트리거가 추가되는 것은 아니다.
-해당 구현 상태는 [API 명세](api-specs.md)에 기록돼 있다.
+## 정기 작업과 수동 재계산
+
+Spring 실행 중 기본 5분마다 센터별 이번 달·다음 달 참고 계산을 접수한다.
+DB 대기열 실행기는 1초마다 PENDING 작업을 하나 처리한다.
+수동 실행은 `POST /api/v1/warehouses/{warehouseId}/ai-jobs`에 targetMonth와 type=PROCUREMENT_AND_COST를 전송한다.
+202와 작업 ID를 받은 뒤 GET 작업 상태를 확인하고, 성공 시 latest 결과를 다시 조회한다.
+
+`JOB_SCHEDULING_ENABLED=false`는 정기 접수만 끄므로 수동 실행은 계속 사용할 수 있다.
+`JOB_WORKER_ENABLED=false`이면 작업을 접수해도 자동 실행하지 않는다.
+`JOB_CRON`으로 정기 주기를 바꿀 수 있다. 현재 로컬 .env에 이 항목이 없어도 기본 활성화된다.
+
+현재 계산은 성공 관측 이력에 기반한 OBSERVATION_BASELINE 참고값이다.
+활성 규격·관측 이력·재고·안전 재고·단가가 있어야 성공한다.
+실제 소모량·모델 정확도·절감액은 대신 만들어내지 않는다. 상세 계약은 [조회 API 응답 명세](read-api-contracts.md)를 참고한다.

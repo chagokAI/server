@@ -3,7 +3,8 @@
 [x] 구현, [ ] 미구현. 응답 필드와 집계 기준은 [조회 API 응답 계약](read-api-contracts.md)을 참고한다.
 
 이번 범위는 조회 API와 기존 조회 응답 보완이다. 공급사 조회·새로고침 정책 조회·알림 읽음 처리 두 개는 직접 구현할 수 있도록 남겨둔다.
-인증, 입고·재고 조정, 발주 초안 생성·변경, 분석 작업 POST·정기 배치 실행기는 후속 범위다.
+인증, 입고·재고 조정, 발주 초안 생성·변경은 후속 범위다.
+분석 작업 POST·재시도·정기 실행은 OBSERVATION_BASELINE 방식의 참고 계산으로 구현했다.
 명세상 권한은 조회 API·본인 알림 읽음·로그아웃은 조회자 이상, 그 외 변경 API는 운영자 이상, 로그인은 공개다.
 권한 적용은 AUTH 구현과 함께 연결해야 한다.
 
@@ -34,8 +35,8 @@
 - [ ] **NOTI-API-02** — `PATCH /api/v1/warehouses/{warehouseId}/notifications/{notificationId}/read` — 없음 → 200 Notification / NOTI-03~04 **직접 구현용으로 남김**
 - [ ] **NOTI-API-03** — `POST /api/v1/warehouses/{warehouseId}/notifications/read-all` — {through: datetime} → 200 {updatedCount,unreadCount} / NOTI-03 **직접 구현용으로 남김**
 - [x] **JOB-API-01** — `GET /api/v1/warehouses/{warehouseId}/jobs/{jobId}` — 없음 → 200 Job / 자동 생성 상태 조회
-- [ ] **JOB-API-02** — `POST /api/v1/warehouses/{warehouseId}/ai-jobs` — {targetMonth, type} → 202 Job / PO-10 확장, type=PROCUREMENT_AND_COST
-- [ ] **JOB-API-03** — `POST /api/v1/warehouses/{warehouseId}/jobs/{jobId}/retry` — VersionInput → 202 Job / 실패·전송 실패·기한 초과 재실행용 확장 UI
+- [x] **JOB-API-02** — `POST /api/v1/warehouses/{warehouseId}/ai-jobs` — {targetMonth, type} → 202 Job + Location, type=PROCUREMENT_AND_COST
+- [x] **JOB-API-03** — `POST /api/v1/warehouses/{warehouseId}/jobs/{jobId}/retry` — {expectedVersion} → 202 Job + Location, 새 실행 시도 생성
 
 ## 기존 구현 및 이번 응답 보완
 
@@ -51,5 +52,6 @@
 - [x] 기존 발주 승인 — `POST /api/v1/warehouses/{warehouseId}/purchase-orders` — APPROVED 발주서 생성·품목 규격 snapshot 저장
 
 기존 발주 승인 POST는 PO-API-04의 공급사별 초안 생성과 다른 기능이다.
-JOB-API-01은 저장 상태 조회만 구현했다. 모델 호출, 결과 생성·저장 실행기, POST 트리거, 재시도, 정기 실행은 아직 없다.
+JOB-API-01~03과 DB 대기열 실행기·5분 정기 스케줄러를 구현했다.
+성공 관측 이력 기반 참고 계산을 사용하며 실제 소모량·학습 모델·Kafka 연동 변경은 이번 범위에 포함하지 않는다.
 로그인·권한 처리는 기존 임시 SecurityConfig/CurrentUserProvider를 사용하므로 AUTH 구현과 함께 연결해야 한다.
