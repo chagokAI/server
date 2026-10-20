@@ -38,6 +38,17 @@ spring:
         request.timeout.ms: 2000
         delivery.timeout.ms: 3000
         linger.ms: 0
+    # 메시지에 타입 헤더가 없으므로 받을 타입을 지정한다. 형식이 깨진 메시지는 ErrorHandlingDeserializer가 잡아
+    # 컨슈머를 멈추지 않고 오류 처리기로 넘긴다
+    consumer:
+      group-id: chagok-dl-analysis
+      auto-offset-reset: earliest
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JacksonJsonDeserializer
+        spring.json.value.default.type: com.skala.chagok.dlanalysis.DlAnalysisRequest
+        spring.json.use.type.headers: false
+        spring.json.trusted.packages: com.skala.chagok.dlanalysis
 
 # DL 분석 요청 토픽(가안). 이름·파티션은 팀 합의 전 값이고, 복제 계수 1은 로컬 단일 브로커 기준이다
 chagok:
@@ -48,3 +59,9 @@ chagok:
       replicas: 1
       # 위 프로듀서 대기 상한이 모두 어긋났을 때 요청 스레드를 풀어 주는 안전장치
       publish-timeout: 10s
+  # DL 측정 서버(chagokAI/item-dimension-api). 로컬에서 uvicorn으로 띄운 주소가 기본값
+  dl:
+    measure:
+      base-url: ${DL_BASE_URL:http://127.0.0.1:8000}
+      connect-timeout: 2s
+      read-timeout: 10s
