@@ -7,6 +7,8 @@ import com.skala.chagok.domain.warehouse.entity.Warehouse;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -56,8 +58,9 @@ public class PurchaseOrder {
     @JoinColumn(name = "supplier_id")
     private Supplier supplier;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 20)
-    private String status;
+    private PurchaseOrderStatus status;
 
     @Column(name = "requested_delivery_date")
     private LocalDate requestedDeliveryDate;
@@ -86,4 +89,27 @@ public class PurchaseOrder {
     @Version
     @Column(name = "version")
     private Integer version;
+
+    /**
+     * 제안서를 바탕으로 승인된 발주서를 생성한다.
+     * 화면에서 요청자와 승인자가 같은 사용자이므로 두 항목에 같은 사용자가 들어간다.
+     */
+    public static PurchaseOrder createApproved(Warehouse warehouse,
+                                               String poNo,
+                                               ProcurementProposal proposal,
+                                               Supplier supplier,
+                                               AppUser user,
+                                               LocalDate requestedDeliveryDate) {
+        return PurchaseOrder.builder()
+                .warehouse(warehouse)
+                .poNo(poNo)
+                .proposal(proposal)
+                .supplier(supplier)
+                .status(PurchaseOrderStatus.APPROVED)
+                .requestedDeliveryDate(requestedDeliveryDate)
+                .requestedBy(user)
+                .approver(user)
+                .approvedAt(Instant.now())
+                .build();
+    }
 }
