@@ -2,15 +2,15 @@
 
 [x] 구현, [ ] 미구현. 응답 필드와 집계 기준은 [조회 API 응답 계약](read-api-contracts.md)을 참고한다.
 
-이번 범위는 조회 API와 기존 조회 응답 보완이다. 공급사 조회·새로고침 정책 조회·알림 읽음 처리 두 개는 직접 구현할 수 있도록 남겨둔다.
-인증, 입고·재고 조정, 발주 초안 생성·변경은 후속 범위다.
-분석 작업 POST·재시도·정기 실행은 OBSERVATION_BASELINE 방식의 참고 계산으로 구현했다.
-명세상 권한은 조회 API·본인 알림 읽음·로그아웃은 조회자 이상, 그 외 변경 API는 운영자 이상, 로그인은 공개다.
-권한 적용은 AUTH 구현과 함께 연결해야 한다.
+와이어프레임의 Spring 업무 흐름을 구현한다. 공급사 조회·새로고침 정책 조회·알림 읽음 처리 두 개는 직접 구현용으로 남겨둔다.
+세션 로그인·센터/역할 검증, 입고·실사 조정, 공급사별 발주 초안·수정·승인·부분 입고를 제공한다.
+분석 작업 POST·재시도·정기 실행은 OBSERVATION_BASELINE 방식의 참고 계산이다.
+로그인·CSRF 토큰 조회·health 외 API는 로그인 필요. 조회·로그아웃·본인 알림 읽음은 VIEWER 이상,
+업무 변경은 OPERATOR/ADMIN이며 모든 센터 API는 로그인 사용자의 소속 센터로 제한한다.
 
-- [ ] **AUTH-API-01** — `POST /api/v1/auth/login` — LoginInput → 200 UserSession, 세션 쿠키 / AUTH-01~02
-- [ ] **AUTH-API-02** — `GET /api/v1/auth/me` — 없음 → 200 UserSession / AUTH-03
-- [ ] **AUTH-API-03** — `POST /api/v1/auth/logout` — 없음 → 204, 세션 종료 / AUTH-04
+- [x] **AUTH-API-01** — `POST /api/v1/auth/login` — LoginInput → 200 UserSession, 세션 쿠키 / AUTH-01~02
+- [x] **AUTH-API-02** — `GET /api/v1/auth/me` — 없음 → 200 UserSession / AUTH-03
+- [x] **AUTH-API-03** — `POST /api/v1/auth/logout` — 없음 → 204, 세션 종료 / AUTH-04
 
 - [ ] **COMMON-API-02** — `GET /api/v1/warehouses/{warehouseId}/suppliers` — keyword? → 200 Supplier[] / SPEC-03, PO-06 **직접 구현용으로 남김**
 - [ ] **COMMON-API-03** — `GET /api/v1/warehouses/{warehouseId}/refresh-policy` — 없음 → 200 RefreshPolicy / COM-02 **직접 구현용으로 남김**
@@ -19,14 +19,14 @@
 - [x] **DASH-API-02** — `GET /api/v1/warehouses/{warehouseId}/simulation-state` — limit? 기본 100, 최대 500; 최근 관측 순, boxId로 동률 정렬 → 200 Scene / DASH-02~03
 - [x] **DASH-API-03** — `GET /api/v1/warehouses/{warehouseId}/metrics` — metric, from, to, bucket=day\|hour, boxSpecId? → 200 MetricSeries / 추이 확인 확장
 
-- [ ] **INV-API-03** — `POST /api/v1/warehouses/{warehouseId}/inventory-receipts` — ReceiptInput → 201 Receipt / INV-04~05
-- [ ] **INV-API-04** — `POST /api/v1/warehouses/{warehouseId}/inventory-adjustments` — AdjustmentInput → 201 Adjustment / INV-06
+- [x] **INV-API-03** — `POST /api/v1/warehouses/{warehouseId}/inventory-receipts` — ReceiptInput → 201 Receipt / INV-04~05
+- [x] **INV-API-04** — `POST /api/v1/warehouses/{warehouseId}/inventory-adjustments` — AdjustmentInput → 201 Adjustment / INV-06
 
 - [x] **PO-API-01** — `GET /api/v1/warehouses/{warehouseId}/procurement-proposals/latest` — targetMonth → 200 LatestProposal / PO-01~03
 - [x] **PO-API-02** — `GET /api/v1/warehouses/{warehouseId}/procurement-proposals/{proposalId}` — 없음 → 200 Proposal / 저장 버전 조회
 - [x] **PO-API-03** — `GET /api/v1/warehouses/{warehouseId}/cost-forecasts/latest` — targetMonth → 200 LatestCostForecast / DASH-07, PO-03
-- [ ] **PO-API-04** — `POST /api/v1/warehouses/{warehouseId}/purchase-orders/from-proposal` — DraftFromProposal → 201 DraftGroup 또는 기존 생성 건 200 / PO-04
-- [ ] **PO-API-05** — `PATCH /api/v1/warehouses/{warehouseId}/purchase-orders/{purchaseOrderId}` — PurchaseOrderUpdate → 200 PurchaseOrder / PO-05~06
+- [x] **PO-API-04** — `POST /api/v1/warehouses/{warehouseId}/purchase-orders/from-proposal` — DraftFromProposal → 201 DraftGroup(공급사별 PENDING 초안) 또는 기존 생성 건 200 / PO-04
+- [x] **PO-API-05** — `PATCH /api/v1/warehouses/{warehouseId}/purchase-orders/{purchaseOrderId}` — PurchaseOrderUpdate → 200 PurchaseOrder / PO-05~06
 
 - [x] **HIST-API-01** — `GET /api/v1/warehouses/{warehouseId}/purchase-orders` — from, to, keyword?, status?, 페이지; sort 기본 createdAt,desc / deliveryDate → 200 PurchaseOrderPage(목록+summary) / HIST-01~03
 - [x] **HIST-API-02** — `GET /api/v1/warehouses/{warehouseId}/purchase-orders/{purchaseOrderId}` — 없음 → 200 PurchaseOrder / HIST-04~06
@@ -51,7 +51,19 @@
 - [x] INV-API-02 — 안전 재고 정책 수정
 - [x] 기존 발주 승인 — `POST /api/v1/warehouses/{warehouseId}/purchase-orders` — APPROVED 발주서 생성·품목 규격 snapshot 저장
 
-기존 발주 승인 POST는 PO-API-04의 공급사별 초안 생성과 다른 기능이다.
+기존 발주 승인 POST는 단일 공급사 직접 승인용 호환 경로다. 신규 화면은 from-proposal → PATCH 흐름을 사용한다.
 JOB-API-01~03과 DB 대기열 실행기·5분 정기 스케줄러를 구현했다.
 성공 관측 이력 기반 참고 계산을 사용하며 실제 소모량·학습 모델·Kafka 연동 변경은 이번 범위에 포함하지 않는다.
-로그인·권한 처리는 기존 임시 SecurityConfig/CurrentUserProvider를 사용하므로 AUTH 구현과 함께 연결해야 한다.
+인증은 기본 활성화된다. 세션·CSRF·초기 로컬 계정 생성 방법은 [로컬 개발](local-development.md)을 참고한다.
+
+## 화면 흐름을 위한 추가 API
+
+- [x] AUTH-CSRF — `GET /api/v1/auth/csrf` — 세션 CSRF 토큰·헤더명
+- [x] MATCH-CANDIDATES — `GET /api/v1/warehouses/{warehouseId}/products/{productId}/box-candidates` — 실제 치수로 계산한 적합 후보
+- [x] INV-HISTORY — `GET /api/v1/warehouses/{warehouseId}/box-inventories/{boxSpecId}/movements` — 입고·실사 이력, 페이지
+- [x] PO-OPEN — `GET /api/v1/warehouses/{warehouseId}/purchase-orders/open?boxSpecId=` — 입고 가능한 발주서·미입고 수량
+
+바코드·무게, 안전 재고 기준 일수·알림 설정, 치수 변경 후 매칭 재검증,
+재고 미확인 상태, 진행 중 발주 집계·금액 정렬을 보완했다.
+업무 변경에 따른 알림은 DB에 저장하며 공급사 전송·외부 메시지 발송은 수행하지 않는다.
+프론트 적용 시 필요한 필드 변환은 [연동 계약](frontend-integration.md)을 참고한다.

@@ -76,3 +76,53 @@ DB 대기열 실행기는 1초마다 PENDING 작업을 하나 처리한다.
 현재 계산은 성공 관측 이력에 기반한 OBSERVATION_BASELINE 참고값이다.
 활성 규격·관측 이력·재고·안전 재고·단가가 있어야 성공한다.
 실제 소모량·모델 정확도·절감액은 대신 만들어내지 않는다. 상세 계약은 [조회 API 응답 명세](read-api-contracts.md)를 참고한다.
+
+## 로그인과 최초 로컬 계정
+
+API 인증은 기본 활성화다. 기존 app_user에는 employee_no, BCrypt password_hash, warehouse_id,
+role=VIEWER/OPERATOR/ADMIN이 필요하다. 계정 등록 API는 제공하지 않는다.
+기본 세션은 30분, rememberMe=true는 쿠키·세션 유휴 기간을 7일로 설정한다.
+세션 저장소는 현재 서버 메모리이므로 Spring 재기동 시 다시 로그인해야 한다.
+
+빈 로컬 DB에 최초 운영자가 필요하면 Git에서 제외된 .env에 다음 항목을 직접 설정한 뒤 실행한다.
+
+```properties
+BOOTSTRAP_ENABLED=true
+BOOTSTRAP_EMPLOYEE_ID=local-operator
+BOOTSTRAP_PASSWORD=직접_정한_비밀번호
+BOOTSTRAP_USER_NAME=로컬 운영자
+BOOTSTRAP_WAREHOUSE_NAME=차곡 로컬 센터
+```
+
+비밀번호는 8자 이상, UTF-8 72바이트 이하로 정한다. 평문은 DB에 저장하지 않고 BCrypt로 해시한다.
+기존 센터를 사용하려면 BOOTSTRAP_WAREHOUSE_ID에 해당 UUID를 지정한다. 생략하면 새 로컬 센터를 만든다.
+같은 사번이 이미 있으면 기존 계정·비밀번호·센터를 변경하지 않는다.
+첫 생성 후 BOOTSTRAP_ENABLED=false로 되돌린다. 기본값은 false이며 고정 초기 비밀번호는 없다.
+이번 구현에서 실제 .env의 계정·비밀번호를 추가하거나 변경하지 않았다.
+
+브라우저 흐름:
+
+1. `GET /api/v1/auth/csrf` → data.headerName과 data.token, 세션 쿠키 받기
+2. 해당 헤더와 `{employeeId,password,rememberMe}`로 `POST /api/v1/auth/login`
+3. 로그인 후 CSRF 토큰을 새로 조회. 이후 변경 요청에 헤더를 첨부
+4. 모든 요청에 `credentials: 'include'` 사용. 사용자/센터는 `GET /api/v1/auth/me`로 조회
+5. 같은 토큰 방식으로 `POST /api/v1/auth/logout` → 204
+
+로그인 성공 시 세션 ID와 CSRF 토큰을 교체한다. 쿠키는 HttpOnly·SameSite=Lax다.
+HTTPS 배포에서는 SESSION_COOKIE_SECURE=true를 지정한다.
+CORS_ALLOWED_ORIGINS 기본값은 localhost:5173과 127.0.0.1:5173이다. 실제 프론트 origin을 쉼표로 지정할 수 있다.
+현재 사용자는 하나의 센터에 속하므로 me.warehouses에는 해당 센터 한 개가 들어간다.
+다른 센터 접근은 403이며 VIEWER의 업무 변경도 403이다.
+AUTH_ENABLED=false는 API 자동 테스트와 명시적인 로컬 진단용으로만 사용한다.
+이 모드에서는 인증·권한·CSRF 검사를 끄고 인증 엔드포인트를 등록하지 않는다.
+
+세션 저장·해제는 [Spring Security 공식 세션 관리](https://docs.spring.io/spring-security/reference/servlet/authentication/session-management.html),
+토큰 검증은 [CSRF 문서](https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html)의 구성에 따른다.
+
+## 화면 연동 전 확인
+
+신규 규격의 단가를 입력하고 초기 재고·안전 재고를 확인한다. 생략한 초기 재고·안전 재고는 새 규격에 한해 0이다.
+기존 재고가 null인 규격은 미확인 상태이며 입고 전에 실사 조정해야 한다.
+공급사별 초안 생성에는 공급사와 저장 제안 단가가 필요하다.
+기존 데이터를 위한 공급사 입력/등록은 이번에 남겨둔 공급사 조회 API와 별개이며 관리 데이터 준비가 필요하다.
+프론트 필드 변환·상태 표시 규칙은 [연동 계약](frontend-integration.md)을 참고한다.

@@ -7,7 +7,7 @@
 
 성공 응답은 `{data, meta}`다. 목록 data에는 `items`, `page`(0부터), `size`(기본 20, 최대 100),
 `totalElements`, `totalPages`가 있다. 상태 탭은 `counts`, 요약 카드는 `summary`를 추가한다.
-없는 센터·다른 센터의 상세 리소스는 404, 잘못된 입력은 공통 오류 형식의 400이다.
+인증 없음은 401, 다른 센터 경로는 403, 본인 센터 내 없는 리소스는 404, 잘못된 입력은 공통 오류 형식의 400이다.
 
 | meta 필드 | 의미 |
 | --- | --- |
@@ -85,6 +85,8 @@ counts·summary에는 검색어만 적용하고 활성·커스텀 필터는 제�
 재고 항목은 기존 재고·안전/목표 수량·재고 수준·소진일·상태·공급사/납기에 stockUpdatedAt와
 forecastUpdatedAt를 구분해 제공한다. 기록되지 않은 시각은 null이다.
 summary는 검색·상태와 무관한 센터 전체, counts는 검색만 적용한다.
+현재 재고 또는 안전 재고가 없으면 status=UNKNOWN이며 unknownSpecCount에 포함한다.
+현재 재고가 누락된 활성 규격이 있으면 totalOnHandQty=null이다. 누락값을 0으로 합산하지 않는다.
 summary.forecastSource는 proposalId/targetMonth/dataAsOf/generatedAt다.
 주간 예상 소모량은 이번 달 제안의 월 소모량 × 7 ÷ 이번 달 일수(반올림)인 근사치다.
 전주 비교 근거가 없어 weeklyForecastChangePct는 null이다.
@@ -129,17 +131,19 @@ cost_forecast 저장 모델을 사용한다. 현재 실행기는 OBSERVATION_BAS
 - from/to 필수, 센터 시간대 양 끝 날짜 포함, 최대 5년
 - keyword: 발주번호·공급사명 부분 검색. %/_는 문자로 검색
 - status: PENDING / APPROVED / IN_TRANSIT / REJECTED / RECEIVED
-- sort: createdAt,desc(기본) 또는 deliveryDate,asc|desc. 동률은 ID 오름차순
+- sort: createdAt,desc(기본), deliveryDate,asc|desc, totalAmountKrw,asc|desc. 동률은 ID 오름차순
 - 항목: id, poNo, createdAt, supplierId, supplierName, boxCodes, specCount, totalQty, totalAmountKrw, deliveryDate, status, version
 - counts: ALL·상태별 개수. 기간·검색 적용, 상태 필터 제외
-- summary: 동일한 전체 검색 범위의 totalOrderCount, totalAmountKrw, pendingCount, averageDeliveryLeadTimeDays, receivedSampleCount
+- summary: 동일한 전체 검색 범위의 totalOrderCount, totalAmountKrw, pendingCount, inProgressCount, averageDeliveryLeadTimeDays, receivedSampleCount, incompleteAmountOrderCount
 
-요약 금액은 반려 제외·승인 대기 포함. 평균 납품 리드타임은 승인부터 실제 입고까지의 경과 일수이며 유효한 입고 표본만 사용한다.
+pendingCount는 PENDING, inProgressCount는 APPROVED+IN_TRANSIT이다.
+요약 금액은 반려 제외·승인 대기 포함. 반려 외 발주서에 금액 누락이 있으면 totalAmountKrw=null이고 incompleteAmountOrderCount로 알린다. 평균 납품 리드타임은 승인부터 실제 입고까지의 경과 일수이며 유효한 입고 표본만 사용한다.
 
 `GET W/purchase-orders/{purchaseOrderId}`:
 
 발주·제안 ID/상태/각 시각, 납품 희망일, 공급사·결제 조건·납기, 요청자·승인자,
-수령 센터·주소·시간, 결정 사유, 품목·수량·저장 단가·금액·총계·version을 반환한다.
+수령 센터·주소·시간·연락처, 결정 사유, 품목·수량·저장 단가·금액·총계·version을 반환한다.
+품목이 없거나 수량·단가가 누락된 과거 발주서는 해당 총 수량·금액을 null로 반환한다.
 새 발주 품목은 당시 규격 snapshot을 저장한다. 과거 품목의 snapshot이 없으면 현재 표시 정보를 사용하고 표시한다.
 공급사·담당자·수령지 정보는 현재 마스터 기준이다.
 
@@ -153,7 +157,7 @@ cost_forecast 저장 모델을 사용한다. 현재 실행기는 OBSERVATION_BAS
 - unreadCount: 본인의 해당 센터 전체 미읽음 수. 카테고리·페이지·unreadOnly와 무관
 
 본인에게 온 알림만 조회하며 다른 센터 소속이면 403이다. 기존 제목 없는 알림은 message를 title에도 제공한다.
-현재 CurrentUserProvider는 인증 전 임시 사용자 선택 방식이다. 실제 세션 연결은 AUTH 작업에서 진행해야 한다.
+CurrentUserProvider는 세션 사용자 ID로 본인을 조회한다. 명시적인 인증 비활성 테스트에서만 기존 첫 사용자 방식을 사용한다.
 
 ## JOB-API-01: 작업 상태
 
@@ -204,10 +208,95 @@ cost_forecast 저장 모델을 사용한다. 현재 실행기는 OBSERVATION_BAS
 절감액·전월/전년 비교는 근거가 없어 null이다. 재고 차감과 BoxSpec의 실제 소진일 갱신은 수행하지 않는다.
 
 설정: `chagok.jobs.scheduling-enabled`, `worker-enabled`, `cron`, `poll-delay`, `lookback-days`, `order-unit`, `timeout`.
-운영자 인가는 기존 AUTH 구현 후 연결해야 한다.
+수동 접수·재시도는 OPERATOR/ADMIN, 상태 조회는 VIEWER 이상이며 소속 센터만 접근할 수 있다.
 
 ## 검증과 스키마
 
 `./gradlew offlineTest`: DTO·서비스·MockMvc 계약·JPA 쿼리 생성·H2 호환 모드 집계·내장 Kafka 검증.
 실제 PostgreSQL·pgvector와 DL 전체 흐름 검증은 PostgreSQL 환경에서 `./gradlew test`로 확인한다.
-개발 설정 ddl-auto=update는 새 테이블과 nullable snapshot 컬럼을 추가한다. 운영에는 별도 마이그레이션이 필요하다.
+개발 설정 ddl-auto=update는 inventory_movement와 새 nullable 컬럼·바코드 유니크 제약을 추가한다. 운영에는 별도 마이그레이션이 필요하다.
+입고·실사·인증 통합 테스트는 PostgreSQL에서 실행하며 외부 DB 없는 offlineTest에서는 제외한다.
+
+## 상품 수정·매칭 후보
+
+- 상품 목록·상세에 barcode(String, 선행 0 보존), weightG(Integer, g)를 추가한다.
+- PATCH 상품은 expectedVersion 필수. barcode는 숫자 문자열 1~30자이고 센터 안에서 중복될 수 없다.
+- code는 SKU다. DL 상품 조회는 barcode를 사용하며, barcode 없는 기존 행만 code와 비교한다.
+- 상품 치수 또는 박스 치수·활성 여부가 바뀌면 연결된 활성 상품의 적합 여부와 비율을 재검증한다.
+- 기존 박스가 부적합·비활성이면 박스·비율·수동 사유를 비우고 UNMATCHED로 바꾼다.
+- 적합하면 비율을 다시 계산한다. MANUAL은 MATCHED를 유지하고 그 외는 85% 이상 MATCHED, 미만 REVIEW다.
+- 상세의 matchCandidates 및 GET products/{id}/box-candidates는 적합한 활성 박스를 충전율 내림차순으로 반환한다.
+- 후보: boxSpec, fillRatePct, recommended(첫 후보), selected, source=DIMENSIONS. 회전을 허용한 치수 비교이며 AI 결과가 아니다.
+- 이름만 수정하면 매칭 결과를 바꾸지 않는다. 변경된 버전은 다음 요청의 expectedVersion으로 사용한다.
+
+## 신규 규격·안전 재고 정책
+
+규격 생성에 unitPriceKrw가 필수다. isActive는 생략 시 true, initialOnHandQty와 safetyQty는 생략 시 0이다.
+targetQty는 선택이며 없으면 stockLevelPct=null이다. 새 규격은 alertEnabled=true로 생성한다.
+재고 수준은 onHandQty/targetQty×100(최대 100), 주의 판정은 소진일≤공급사 리드타임+여유일이다.
+활성 규격·참조·재고·입고/실사 이력이 있으면 삭제할 수 없다.
+
+PATCH box-inventories/{id}/policy:
+
+```json
+{"expectedVersion": 0, "safetyDays": 7, "alertEnabled": true, "targetQty": 2000}
+```
+
+safetyQty, safetyDays(1~366), alertEnabled, targetQty 중 하나 이상 필요하다.
+safetyQty를 전달하면 해당 수량을 저장한다. 일수만 전달하면 이번 달 저장 제안서의 품목별 월 참고 수량×일수÷월 일수(올림)으로 계산한다.
+근거가 없으면 409이며 safetyQty를 직접 입력할 수 있다. 반올림한 일평균 표시값을 계산에 재사용하지 않는다.
+안전 재고 수량은 정책 저장 시점의 참고값으로 계산하며 이후 배치에서 자동으로 다시 설정하지 않는다.
+응답 dailyUsage는 최신 제안의 소수 4자리 참고 일평균이며 실제 박스 소모량이 아니다.
+usageSource=REFERENCE_FORECAST/NOT_AVAILABLE, usageDataAsOf로 기준을 구분한다. 일평균·주간 합계는 동일한 제안 버전을 사용한다.
+알림이 켜진 상태에서 안전 재고 미만으로 진입하거나 부족 상태에서 알림을 다시 켜면 센터 사용자의 재고 알림을 저장한다.
+
+## 입고·실사
+
+POST inventory-receipts:
+
+```json
+{"requestId":"UUID", "boxSpecId":"UUID", "expectedVersion":0,
+ "purchaseOrderId":"UUID 또는 생략", "qty":100, "receivedDate":"2026-10-21", "memo":"검수 완료"}
+```
+
+POST inventory-adjustments:
+
+```json
+{"requestId":"UUID", "boxSpecId":"UUID", "expectedVersion":0, "onHandQty":125, "reason":"실사 확인"}
+```
+
+둘 다 201, data=InventoryMovementResponse(id,requestId,boxSpecId,purchaseOrderId,type,deltaQty,beforeQty,afterQty,occurredOn,memo,createdAt).
+입고는 기존 재고에 양수 수량을 더하고, 실사는 확인한 절대 수량(0 이상)으로 바꾼다.
+미확인 재고는 먼저 실사해야 하며 최초 실사의 beforeQty·deltaQty는 null이다.
+입고일은 센터 시간대의 오늘까지 허용한다. 변경 기록 시각(createdAt·stockUpdatedAt)은 실제 처리 시각이다.
+센터 잠금과 version으로 경합을 제어하며 같은 requestId·같은 입력은 기존 결과를 반환한다(중복 증가 없음).
+같은 requestId를 다른 내용으로 재사용하거나 버전이 오래되었으면 409다.
+발주서 연결은 같은 센터의 APPROVED/IN_TRANSIT이며 해당 규격과 미입고 수량 안에서만 허용한다.
+일부만 입고하면 기존 상태를 유지하고, 모든 품목 수량이 채워지면 RECEIVED·receivedAt를 저장한다.
+자동 소모 차감은 추가하지 않는다. 실사 조정은 직원이 명시적으로 확인한 변경이다.
+GET box-inventories/{id}/movements는 createdAt 내림차순·ID 오름차순 페이지를 반환한다.
+
+## 발주 초안·수정·입고 선택지
+
+POST purchase-orders/from-proposal: {proposalId, requestedDeliveryDate?}
+
+- 양수 제안 수량만 공급사별 PENDING 발주서로 분리하고 당시 규격·저장 단가를 보존한다.
+- 새 생성은 201, 같은 제안의 재요청은 기존 DraftGroupResponse를 200으로 반환한다.
+- 수량·활성 규격·공급사·저장 단가가 없으면 409다. 수량 전체가 0이어도 발주서를 만들지 않는다.
+- 납품일 생략 시 오늘+공급사 리드타임을 사용한다.
+- DraftGroupResponse={proposalId, orders:[PurchaseOrderResponse]}다.
+
+PATCH purchase-orders/{id}: {expectedVersion, requestedDeliveryDate?, items?:[{boxSpecId,qty}], status?, decisionReason?}
+
+- PENDING에서만 수량·납품일을 수정한다. 품목은 기존 규격에 한해 일부 수정하며 단가는 서버 저장값을 사용한다.
+- 수량 0은 해당 품목 발주 제외를 뜻하며 양수 수량 품목은 하나 이상 필요하다.
+- 품목만 수정해도 발주서 version이 올라간다. 서버가 금액을 다시 계산한다.
+- PENDING→APPROVED/REJECTED, APPROVED→IN_TRANSIT만 허용한다. 반려 사유는 필수다.
+- RECEIVED는 입고 API를 통해서만 전이한다. 승인 시 공급사·규격 활성 여부를 다시 확인한다.
+- 승인과 알림 저장은 같은 트랜잭션이다. 공급사에 실제로 전송했다는 의미는 아니다.
+- 수령 정보에는 receivingContact를 포함한다.
+
+GET purchase-orders/open?boxSpecId=UUID: APPROVED/IN_TRANSIT 중 미입고 수량이 있는 발주서를 반환한다.
+항목은 id,poNo,supplierName,deliveryDate,items[{boxSpec,orderedQty,receivedQty,remainingQty}]다.
+기존 POST purchase-orders 직접 승인 경로는 단일 공급사·현재 단가를 검증하고 공통 envelope로 응답한다.
+신규 화면은 초안 생성·수정 흐름을 사용한다.
