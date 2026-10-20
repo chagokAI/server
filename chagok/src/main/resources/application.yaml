@@ -32,6 +32,12 @@ spring:
       value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
       properties:
         spring.json.add.type.headers: false
+        # 요청 API가 발행 확인을 기다리므로 Kafka 장애 시 기본값(최대 60초·2분) 대신 몇 초 안에 실패시킨다.
+        # delivery.timeout.ms는 linger.ms + request.timeout.ms 이상이어야 한다
+        max.block.ms: 3000
+        request.timeout.ms: 2000
+        delivery.timeout.ms: 3000
+        linger.ms: 0
 
 # DL 분석 요청 토픽(가안). 이름·파티션은 팀 합의 전 값이고, 복제 계수 1은 로컬 단일 브로커 기준이다
 chagok:
@@ -40,3 +46,5 @@ chagok:
       topic: chagok.dl.analysis-request.v1
       partitions: 3
       replicas: 1
+      # 위 프로듀서 대기 상한이 모두 어긋났을 때 요청 스레드를 풀어 주는 안전장치
+      publish-timeout: 10s

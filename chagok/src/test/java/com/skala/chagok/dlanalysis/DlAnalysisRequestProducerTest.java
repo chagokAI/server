@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.clients.consumer.Consumer;
@@ -62,7 +61,7 @@ class DlAnalysisRequestProducerTest {
         DlAnalysisRequest request = DlAnalysisRequest.of(
                 "evt-1", "job-1", "wh-1", "sh-1", "captures/job-1/cam1.jpg", Instant.parse("2026-10-20T06:00:00Z"));
 
-        producer.send(request).get(10, TimeUnit.SECONDS);
+        producer.publish(request);
 
         Map<String, Object> consumerProps = KafkaTestUtils.consumerProps(broker, "dl-analysis-request-test", false);
         consumerProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
