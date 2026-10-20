@@ -9,19 +9,29 @@ import lombok.RequiredArgsConstructor;
 
 import org.springframework.stereotype.Component;
 
-/**
- * 현재 로그인한 사용자를 돌려준다.
- *
- * <p>아직 인증이 없어 사번 순 첫 번째 사용자를 반환한다. 로그인 기능이 들어오면
- * 이 클래스 내부만 SecurityContext 조회로 교체하면 되고, 호출부는 그대로 둔다.
- */
+/** 세션의 사용자 ID를 조회한다. 인증 비활성 모드는 명시적인 로컬 테스트용이다. */
 @Component
 @RequiredArgsConstructor
 public class CurrentUserProvider {
 
     private final AppUserRepository appUserRepository;
 
+    @org.springframework.beans.factory.annotation.Value("${chagok.auth.enabled:true}")
+    private boolean authEnabled = true;
+
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public AppUser getCurrentUser() {
+        if (authEnabled) {
+            var authentication = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+            if (authentication == null || !authentication.isAuthenticated() || authentication instanceof org.springframework.security.authentication.AnonymousAuthenticationToken)
+                throw new com.skala.chagok.global.error.BusinessException(com.skala.chagok.global.error.ErrorCode.UNAUTHENTICATED);
+            try {
+                return appUserRepository.findById(java.util.UUID.fromString(authentication.getName()))
+                        .orElseThrow(() -> new com.skala.chagok.global.error.BusinessException(com.skala.chagok.global.error.ErrorCode.UNAUTHENTICATED));
+            } catch (IllegalArgumentException e) {
+                throw new com.skala.chagok.global.error.BusinessException(com.skala.chagok.global.error.ErrorCode.UNAUTHENTICATED);
+            }
+        }
         return appUserRepository.findFirstByOrderByEmployeeNoAsc()
                 .orElseThrow(() -> new EntityNotFoundException("등록된 사용자가 없습니다."));
     }
