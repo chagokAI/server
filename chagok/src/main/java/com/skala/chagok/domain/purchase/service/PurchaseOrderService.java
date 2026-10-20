@@ -51,10 +51,12 @@ public class PurchaseOrderService {
      * 화면에서 수정한 품목·수량과 납품 희망일을 그대로 발주서에 담아 APPROVED 상태로 저장한다.
      */
     @Transactional
-    public PurchaseOrderCreateResponse create(PurchaseOrderCreateRequest request) {
+    public PurchaseOrderCreateResponse create(UUID warehouseId, PurchaseOrderCreateRequest request) {
         UUID proposalId = request.proposalId();
         ProcurementProposal proposal = procurementProposalRepository.findById(proposalId)
-                .orElseThrow(() -> new EntityNotFoundException("발주 제안서를 찾을 수 없습니다. id=" + proposalId));
+                .filter(p -> p.getWarehouse().getId().equals(warehouseId))
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "해당 창고의 발주 제안서를 찾을 수 없습니다. warehouseId=" + warehouseId + ", proposalId=" + proposalId));
         if (purchaseOrderRepository.existsByProposalId(proposalId)) {
             throw new IllegalStateException("이미 발주서가 생성된 제안서입니다. proposalId=" + proposalId);
         }
