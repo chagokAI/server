@@ -2,6 +2,8 @@ package com.skala.chagok.domain;
 
 import com.skala.chagok.domain.box.entity.BoxSpec;
 import com.skala.chagok.domain.category.entity.Category;
+import com.skala.chagok.domain.job.entity.AnalysisJob;
+import com.skala.chagok.domain.procurement.entity.CostForecast;
 import com.skala.chagok.domain.event.entity.ItemEvent;
 import com.skala.chagok.domain.notification.entity.Notification;
 import com.skala.chagok.domain.procurement.entity.ProcurementProposal;
@@ -43,13 +45,13 @@ class EntityMappingTests {
                     Warehouse.class, AppUser.class, Supplier.class, BoxSpec.class,
                     Product.class, ProcurementProposal.class, ProcurementProposalItem.class,
                     PurchaseOrder.class, PurchaseOrderItem.class, ItemEvent.class, Notification.class,
-                    Category.class
+                    Category.class, AnalysisJob.class, CostForecast.class
             }) {
                 sources.addAnnotatedClass(entity);
             }
 
             try (SessionFactory sessionFactory = sources.buildMetadata().buildSessionFactory()) {
-                assertThat(sessionFactory.getMetamodel().getEntities()).hasSize(12);
+                assertThat(sessionFactory.getMetamodel().getEntities()).hasSize(14);
                 assertThat(schema.toString())
                         .contains("embedding vector(384)", "summary jsonb", "placement jsonb")
                         .contains("primary key (box_spec_id, proposal_id)")
