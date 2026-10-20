@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -72,9 +73,12 @@ class DlAnalysisFlowIntegrationTest {
     private final UUID productId = UUID.randomUUID();
     private final List<String> eventIds = new ArrayList<>();
 
+    private static final Path MEASUREMENT_LOG = createMeasurementLogPath();
+
     @DynamicPropertySource
     static void dlAddress(DynamicPropertyRegistry registry) {
         registry.add("chagok.dl.measure.base-url", () -> "http://127.0.0.1:" + FAKE_DL.getAddress().getPort());
+        registry.add("chagok.dl.measure.measurement-log", MEASUREMENT_LOG::toString);
     }
 
     @BeforeEach
@@ -111,7 +115,8 @@ class DlAnalysisFlowIntegrationTest {
 
     @Test
     void identifiedItemCopiesProductMatchIntoItemEvent() throws IOException {
-        DL_RESPONSE.set("{\"status\":\"known\",\"barcode\":\"" + BARCODE + "\",\"product_name\":\"테스트 상품\"}");
+        DL_RESPONSE.set("{\"status\":\"known\",\"barcode\":\"" + BARCODE + "\",\"product_name\":\"테스트 상품\","
+                + "\"size\":{\"type\":\"measured\",\"w_cm\":23.9,\"d_cm\":8.0,\"h_cm\":3.4,\"volume_cm3\":650.1}}");
 
         String eventId = accept();
 
@@ -121,6 +126,23 @@ class DlAnalysisFlowIntegrationTest {
         assertThat(row.get("box_spec_id")).isEqualTo(boxSpecId);
         assertThat(row.get("fill_rate_pct").toString()).isEqualTo("72.50");
         assertThat(row.get("placement")).isNull();
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(measurementLine(eventId))
+                .contains("\"barcode\":\"" + BARCODE + "\"", "\"sizeType\":\"measured\"", "\"widthCm\":23.9",
+                        "\"outcome\":\"SUCCEEDED\"", "\"latencyMs\":"));
+    }
+
+    @Test
+    void acceptedRowKeepsGivenOccurredAt() throws IOException {
+        DL_RESPONSE.set("{\"status\":\"unknown\",\"barcode\":null}");
+        Instant occurredAt = Instant.parse("2026-05-03T01:02:03Z");
+
+        String eventId = acceptService.accept(warehouseId, images(), occurredAt);
+        eventIds.add(eventId);
+
+        assertThat(jdbc.queryForObject("select occurred_at from item_event where event_id = ?",
+                java.sql.Timestamp.class, eventId).toInstant()).isEqualTo(occurredAt);
+        await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> assertThat(measurementLine(eventId))
+                .contains("\"outcome\":\"FAILED\"", "\"reason\":\"UNKNOWN_ITEM\""));
     }
 
     @Test
@@ -183,6 +205,24 @@ class DlAnalysisFlowIntegrationTest {
 
     private String statusOf(String eventId) {
         return jdbc.queryForObject("select status from item_event where event_id = ?", String.class, eventId);
+    }
+
+    private static String measurementLine(String eventId) throws IOException {
+        if (Files.notExists(MEASUREMENT_LOG)) {
+            return "";
+        }
+        return Files.readAllLines(MEASUREMENT_LOG).stream()
+                .filter(line -> line.contains(eventId))
+                .findFirst()
+                .orElse("");
+    }
+
+    private static Path createMeasurementLogPath() {
+        try {
+            return Files.createTempDirectory("dl-measurement").resolve("measurements.jsonl");
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private static List<String> images() throws IOException {
