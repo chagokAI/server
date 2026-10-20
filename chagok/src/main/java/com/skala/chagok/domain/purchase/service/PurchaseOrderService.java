@@ -63,7 +63,7 @@ public class PurchaseOrderService {
         }
 
         validateTotals(request);
-        Map<UUID, BoxSpec> boxSpecs = loadBoxSpecs(request.items());
+        Map<UUID, BoxSpec> boxSpecs = loadBoxSpecs(warehouseId, request.items());
 
         PurchaseOrder purchaseOrder = PurchaseOrder.createApproved(
                 proposal.getWarehouse(),
@@ -106,7 +106,7 @@ public class PurchaseOrderService {
         }
     }
 
-    private Map<UUID, BoxSpec> loadBoxSpecs(List<PurchaseOrderCreateRequest.Item> items) {
+    private Map<UUID, BoxSpec> loadBoxSpecs(UUID warehouseId, List<PurchaseOrderCreateRequest.Item> items) {
         Set<UUID> boxSpecIds = new LinkedHashSet<>();
         for (PurchaseOrderCreateRequest.Item item : items) {
             if (!boxSpecIds.add(item.boxSpecId())) {
@@ -115,6 +115,7 @@ public class PurchaseOrderService {
         }
 
         Map<UUID, BoxSpec> boxSpecs = boxSpecRepository.findAllById(boxSpecIds).stream()
+                .filter(spec -> spec.getWarehouse() != null && warehouseId.equals(spec.getWarehouse().getId()))
                 .collect(Collectors.toMap(BoxSpec::getId, Function.identity()));
         if (boxSpecs.size() != boxSpecIds.size()) {
             Set<UUID> missing = new HashSet<>(boxSpecIds);
