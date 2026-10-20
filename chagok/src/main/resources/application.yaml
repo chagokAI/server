@@ -18,6 +18,14 @@ spring:
       hibernate:
         hbm2ddl:
           halt_on_error: true
+        # PostgreSQL은 DESC 정렬 시 NULL이 먼저 온다. 미매칭(비율 null)을 목록 뒤로 보낸다.
+        order_by:
+          default_null_ordering: last
+
+  jackson:
+    deserialization:
+      # 정의된 필드 외 입력은 거부한다.
+      fail-on-unknown-properties: true
 
   sql:
     init:
@@ -65,3 +73,9 @@ chagok:
       base-url: ${DL_BASE_URL:http://127.0.0.1:8000}
       connect-timeout: 2s
       read-timeout: 10s
+chagok:
+  timezone: Asia/Seoul
+  refresh-after-seconds: 300
+  inventory:
+    caution-buffer-days: 3
+    target-days-to-stockout: 14
