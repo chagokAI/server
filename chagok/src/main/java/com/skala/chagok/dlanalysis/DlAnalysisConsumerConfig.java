@@ -31,6 +31,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Configuration
 @EnableConfigurationProperties(DlMeasureClientProperties.class)
+@KafkaIntegrationEnabled
 class DlAnalysisConsumerConfig {
 
     private static final FixedBackOff ORPHAN_BACK_OFF = new FixedBackOff(500L, 5);
