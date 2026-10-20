@@ -2,6 +2,8 @@ package com.skala.chagok.domain.product.service;
 
 import com.skala.chagok.domain.box.entity.BoxSpec;
 import com.skala.chagok.domain.box.repository.BoxSpecRepository;
+import com.skala.chagok.domain.category.entity.Category;
+import com.skala.chagok.domain.category.repository.CategoryRepository;
 import com.skala.chagok.domain.product.dto.MatchOverrideRequest;
 import com.skala.chagok.domain.product.dto.ProductDetailResponse;
 import com.skala.chagok.domain.product.dto.ProductMatchResponse;
@@ -44,10 +46,11 @@ public class ProductMatchService {
 
     private final ProductRepository productRepository;
     private final BoxSpecRepository boxSpecRepository;
+    private final CategoryRepository categoryRepository;
     private final WarehouseRepository warehouseRepository;
 
     public PageResponse<ProductMatchResponse> getProductMatches(UUID warehouseId, SearchBy searchBy, String keyword,
-                                                                String categoryId, MatchStatus status,
+                                                                UUID categoryId, MatchStatus status,
                                                                 int page, int size, String sort) {
         requireWarehouse(warehouseId);
         Pageable pageable = PageRequests.of(page, size, sort, SORTS, DEFAULT_SORT);
@@ -67,13 +70,30 @@ public class ProductMatchService {
         return ProductDetailResponse.from(findProduct(warehouseId, productId));
     }
 
+    /** 상품 수정 모달 저장. 상품 정보 수정과 박스 직접 지정을 한 트랜잭션에서 처리한다. */
     @Transactional
     public ProductDetailResponse updateProduct(UUID warehouseId, UUID productId, ProductUpdateRequest request) {
         Product product = findProduct(warehouseId, productId);
         checkVersion(product.getVersion(), request.expectedVersion());
 
-        product.update(request.code(), request.name(), request.category(),
+        Category category = request.categoryId() == null ? null
+                : categoryRepository.findByIdAndWarehouseId(request.categoryId(), warehouseId)
+                        .orElseThrow(() -> BusinessException.invalidField("categoryId", "존재하지 않는 카테고리입니다."));
+        product.update(request.name(), category,
                 request.widthMm(), request.depthMm(), request.heightMm(), request.imageUrl());
+
+        // 같은 박스를 다시 보내면 지정 변경이 아니므로 매칭 상태를 그대로 둔다.
+        BoxSpec current = product.getMatchedBoxSpec();
+        boolean boxChanged = request.boxSpecId() != null
+                && (current == null || !current.getId().equals(request.boxSpecId()));
+        if (boxChanged) {
+            if (request.matchOverrideReason() == null || request.matchOverrideReason().isBlank()) {
+                throw BusinessException.invalidField("matchOverrideReason", "박스를 직접 지정할 때는 사유가 필요합니다.");
+            }
+            // 사이즈를 함께 고친 경우에도 위에서 먼저 반영했으므로 새 사이즈 기준으로 계산된다.
+            applyOverride(product, warehouseId, request.boxSpecId(), request.matchOverrideReason());
+        }
+
         // @Version은 flush 시점에 올라가므로, 응답에 새 버전을 담으려면 먼저 flush한다.
         productRepository.flush();
         return ProductDetailResponse.from(product);
@@ -84,7 +104,21 @@ public class ProductMatchService {
         Product product = findProduct(warehouseId, productId);
         checkVersion(product.getVersion(), request.expectedVersion());
 
-        BoxSpec boxSpec = boxSpecRepository.findByIdAndWarehouseId(request.boxSpecId(), warehouseId)
+        applyOverride(product, warehouseId, request.boxSpecId(), request.matchOverrideReason());
+        productRepository.flush();
+        return ProductMatchResponse.from(product);
+    }
+
+    @Transactional
+    public void deactivateProduct(UUID warehouseId, UUID productId, Integer expectedVersion) {
+        Product product = findProduct(warehouseId, productId);
+        checkVersion(product.getVersion(), expectedVersion);
+        product.deactivate();
+    }
+
+    /** 박스를 직접 지정한다. 상품이 박스에 들어가야 하며, 포장공간비율은 부피비로 계산한다. */
+    private void applyOverride(Product product, UUID warehouseId, UUID boxSpecId, String reason) {
+        BoxSpec boxSpec = boxSpecRepository.findByIdAndWarehouseId(boxSpecId, warehouseId)
                 .orElseThrow(() -> BusinessException.notFound("박스 규격"));
         if (!Boolean.TRUE.equals(boxSpec.getIsActive())) {
             throw new BusinessException(ErrorCode.INVALID_STATE, "비활성화된 박스 규격은 지정할 수 없습니다.");
@@ -99,16 +133,7 @@ public class ProductMatchService {
             throw new BusinessException(ErrorCode.BOX_NOT_FIT);
         }
 
-        product.overrideMatch(boxSpec, FillRateCalculator.fillRatePct(productDims, boxDims));
-        productRepository.flush();
-        return ProductMatchResponse.from(product);
-    }
-
-    @Transactional
-    public void deactivateProduct(UUID warehouseId, UUID productId, Integer expectedVersion) {
-        Product product = findProduct(warehouseId, productId);
-        checkVersion(product.getVersion(), expectedVersion);
-        product.deactivate();
+        product.overrideMatch(boxSpec, FillRateCalculator.fillRatePct(productDims, boxDims), reason.trim());
     }
 
     /** 상단 탭 숫자. 상태별로 count 쿼리를 하나씩 실행한다(상태 수가 적어 단순하게 유지). */

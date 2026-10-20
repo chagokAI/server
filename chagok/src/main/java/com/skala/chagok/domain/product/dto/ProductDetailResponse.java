@@ -1,5 +1,6 @@
 package com.skala.chagok.domain.product.dto;
 
+import com.skala.chagok.domain.category.dto.CategoryResponse;
 import com.skala.chagok.domain.product.entity.MatchStatus;
 import com.skala.chagok.domain.product.entity.Product;
 
@@ -10,7 +11,7 @@ public record ProductDetailResponse(
         UUID id,
         String code,
         String name,
-        String category,
+        CategoryResponse category,
         String imageUrl,
         Integer widthMm,
         Integer depthMm,
@@ -19,6 +20,7 @@ public record ProductDetailResponse(
         BigDecimal fillRatePct,
         MatchStatus matchStatus,
         String matchSource,
+        String matchOverrideReason,
         Boolean isActive,
         Integer version
 ) {
@@ -28,7 +30,7 @@ public record ProductDetailResponse(
                 product.getId(),
                 product.getCode(),
                 product.getName(),
-                product.getCategory(),
+                CategoryResponse.from(product.getCategory()),
                 product.getImageUrl(),
                 product.getWidthMm(),
                 product.getDepthMm(),
@@ -37,6 +39,7 @@ public record ProductDetailResponse(
                 product.getFillRatePct(),
                 product.getMatchStatus(),
                 product.getMatchSource(),
+                product.getMatchOverrideReason(),
                 product.getIsActive(),
                 product.getVersion()
         );

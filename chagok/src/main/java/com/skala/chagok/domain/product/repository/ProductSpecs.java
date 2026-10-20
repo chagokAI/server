@@ -32,11 +32,11 @@ public final class ProductSpecs {
         return (root, query, cb) -> cb.like(cb.lower(root.get(attribute)), pattern, LikePatterns.ESCAPE);
     }
 
-    public static Specification<Product> category(String category) {
-        if (category == null || category.isBlank()) {
+    public static Specification<Product> category(UUID categoryId) {
+        if (categoryId == null) {
             return null;
         }
-        return (root, query, cb) -> cb.equal(root.get("category"), category);
+        return (root, query, cb) -> cb.equal(root.get("category").get("id"), categoryId);
     }
 
     public static Specification<Product> status(MatchStatus status) {

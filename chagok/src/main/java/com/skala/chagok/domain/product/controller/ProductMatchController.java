@@ -44,7 +44,7 @@ public class ProductMatchController {
             @PathVariable UUID warehouseId,
             @RequestParam(defaultValue = "NAME") SearchBy searchBy,
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) String categoryId,
+            @RequestParam(required = false) UUID categoryId,
             @RequestParam(required = false) MatchStatus status,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size,

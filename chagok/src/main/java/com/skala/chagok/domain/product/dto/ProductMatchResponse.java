@@ -1,5 +1,6 @@
 package com.skala.chagok.domain.product.dto;
 
+import com.skala.chagok.domain.category.dto.CategoryResponse;
 import com.skala.chagok.domain.box.entity.BoxSpec;
 import com.skala.chagok.domain.product.entity.MatchStatus;
 import com.skala.chagok.domain.product.entity.Product;
@@ -14,7 +15,7 @@ public record ProductMatchResponse(
         UUID id,
         String code,
         String name,
-        String category,
+        CategoryResponse category,
         String imageUrl,
         Integer widthMm,
         Integer depthMm,
@@ -38,7 +39,7 @@ public record ProductMatchResponse(
                 product.getId(),
                 product.getCode(),
                 product.getName(),
-                product.getCategory(),
+                CategoryResponse.from(product.getCategory()),
                 product.getImageUrl(),
                 product.getWidthMm(),
                 product.getDepthMm(),

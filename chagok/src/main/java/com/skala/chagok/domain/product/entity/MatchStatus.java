@@ -10,7 +10,5 @@ public enum MatchStatus {
     /** 검토 필요 */
     REVIEW,
     /** 미매칭: matched_box_spec_id·fill_rate_pct가 null */
-    UNMATCHED,
-    /** 상품 수정 후 재매칭 대기 */
-    PROCESSING
+    UNMATCHED
 }
