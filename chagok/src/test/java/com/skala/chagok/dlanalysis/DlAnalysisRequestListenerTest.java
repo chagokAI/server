@@ -28,12 +28,14 @@ class DlAnalysisRequestListenerTest {
     private final DlAnalysisItemEventRepository itemEvents = mock(DlAnalysisItemEventRepository.class);
     private final DlMeasureClient measureClient = mock(DlMeasureClient.class);
     private final DlAnalysisResultRecorder recorder = mock(DlAnalysisResultRecorder.class);
-    private final DlAnalysisRequestListener listener = new DlAnalysisRequestListener(itemEvents, measureClient, recorder);
+    private final DlMeasurementLog measurementLog = mock(DlMeasurementLog.class);
+    private final DlAnalysisRequestListener listener =
+            new DlAnalysisRequestListener(itemEvents, measureClient, recorder, measurementLog);
 
     @Test
     void recordsIdentifiedProductWhenDlKnowsTheItem() {
         givenStatus(ItemEventStatus.PENDING);
-        when(measureClient.measure(REQUEST.imageRefs())).thenReturn(new DlMeasureResult("known", "8809037045013"));
+        when(measureClient.measure(REQUEST.imageRefs())).thenReturn(new DlMeasureResult("known", "8809037045013", null));
 
         listener.onRequest(REQUEST);
 
@@ -43,7 +45,7 @@ class DlAnalysisRequestListenerTest {
     @Test
     void recordsUnknownItemAsFailure() {
         givenStatus(ItemEventStatus.PENDING);
-        when(measureClient.measure(REQUEST.imageRefs())).thenReturn(new DlMeasureResult("unknown", null));
+        when(measureClient.measure(REQUEST.imageRefs())).thenReturn(new DlMeasureResult("unknown", null, null));
 
         listener.onRequest(REQUEST);
 
@@ -82,7 +84,7 @@ class DlAnalysisRequestListenerTest {
         assertThatThrownBy(() -> listener.onRequest(REQUEST))
                 .isInstanceOf(DlAnalysisException.class)
                 .hasMessageContaining("DL_UNAVAILABLE");
-        verifyNoInteractions(recorder);
+        verifyNoInteractions(recorder, measurementLog);
     }
 
     @Test

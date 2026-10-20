@@ -39,13 +39,13 @@ class DlAnalysisConsumerConfig {
     private static final FixedBackOff NO_RETRY = new FixedBackOff(0L, 0L);
 
     @Bean
-    DefaultErrorHandler dlAnalysisErrorHandler(DlAnalysisResultRecorder recorder) {
+    DefaultErrorHandler dlAnalysisErrorHandler(DlAnalysisResultRecorder recorder, DlMeasurementLog measurementLog) {
         // 처음에는 기본 백오프를 NO_RETRY로 두고 사유별 간격을 백오프 함수로만 정했다. 그런데 spring-kafka의
         // FailedRecordTracker는 기본 백오프가 「재시도 없음」이면 백오프 함수를 보지 않고 곧바로 복구한다.
         // 통합 테스트에서 저장보다 먼저 도착한 메시지가 재시도 없이 고아로 버려져 작업이 PENDING에 남는 것으로 드러났다.
         // 그래서 기본 백오프는 재시도가 있는 값으로 두고, 재시도하지 않을 예외는 함수가 NO_RETRY를 돌려주게 했다.
         DefaultErrorHandler handler = new DefaultErrorHandler(
-                (record, exception) -> recover(recorder, record, exception), DL_BACK_OFF);
+                (record, exception) -> recover(recorder, measurementLog, record, exception), DL_BACK_OFF);
         handler.setBackOffFunction((record, exception) -> backOffFor(exception));
         return handler;
     }
@@ -64,11 +64,16 @@ class DlAnalysisConsumerConfig {
         return NO_RETRY;
     }
 
-    private static void recover(DlAnalysisResultRecorder recorder, ConsumerRecord<?, ?> record, Exception exception) {
+    private static void recover(
+            DlAnalysisResultRecorder recorder,
+            DlMeasurementLog measurementLog,
+            ConsumerRecord<?, ?> record,
+            Exception exception) {
         String eventId = String.valueOf(record.key());
         DlAnalysisFailureReason reason = reasonOf(exception);
         if (reason == DlAnalysisFailureReason.DL_UNAVAILABLE) {
-            recorder.recordFailure(eventId, reason, exception.getMessage());
+            DlAnalysisOutcome outcome = recorder.recordFailure(eventId, reason, exception.getMessage());
+            measurementLog.write(eventId, null, null, outcome);
             return;
         }
         if (reason == DlAnalysisFailureReason.ORPHAN_MESSAGE) {

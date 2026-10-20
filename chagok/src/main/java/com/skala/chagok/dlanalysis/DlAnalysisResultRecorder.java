@@ -32,39 +32,39 @@ public class DlAnalysisResultRecorder {
     }
 
     @Transactional
-    public void recordIdentified(String eventId, UUID warehouseId, String barcode) {
+    public DlAnalysisOutcome recordIdentified(String eventId, UUID warehouseId, String barcode) {
         List<Product> found = products.findByWarehouse_IdAndCodeAndIsActiveTrue(warehouseId, barcode);
         if (found.isEmpty()) {
-            fail(eventId, DlAnalysisFailureReason.PRODUCT_NOT_FOUND, "barcode=" + barcode);
-            return;
+            return fail(eventId, DlAnalysisFailureReason.PRODUCT_NOT_FOUND, "barcode=" + barcode);
         }
         if (found.size() > 1) {
-            fail(eventId, DlAnalysisFailureReason.PRODUCT_AMBIGUOUS, "barcode=" + barcode + ", count=" + found.size());
-            return;
+            return fail(eventId, DlAnalysisFailureReason.PRODUCT_AMBIGUOUS, "barcode=" + barcode + ", count=" + found.size());
         }
         Product product = found.getFirst();
         int updated = itemEvents.markSucceeded(eventId, product, product.getMatchedBoxSpec(), product.getFillRatePct());
         if (updated == 0) {
             log.info("DL 분석 결과 생략(이미 처리됨): eventId={}", eventId);
-            return;
+            return DlAnalysisOutcome.skipped();
         }
         if (product.getMatchedBoxSpec() == null) {
             log.info("DL 분석 성공, 상품에 매칭 박스 없음: eventId={}, reason=NO_MATCHED_BOX, productId={}",
                     eventId, product.getId());
         }
+        return DlAnalysisOutcome.succeeded();
     }
 
     @Transactional
-    public void recordFailure(String eventId, DlAnalysisFailureReason reason, String detail) {
-        fail(eventId, reason, detail);
+    public DlAnalysisOutcome recordFailure(String eventId, DlAnalysisFailureReason reason, String detail) {
+        return fail(eventId, reason, detail);
     }
 
-    private void fail(String eventId, DlAnalysisFailureReason reason, String detail) {
+    private DlAnalysisOutcome fail(String eventId, DlAnalysisFailureReason reason, String detail) {
         int updated = itemEvents.markFailed(eventId);
         if (updated == 0) {
             log.info("DL 분석 실패 기록 생략(이미 처리됨): eventId={}, reason={}", eventId, reason);
-            return;
+            return DlAnalysisOutcome.skipped();
         }
         log.warn("DL 분석 실패: eventId={}, reason={}, detail={}", eventId, reason, detail);
+        return DlAnalysisOutcome.failed(reason);
     }
 }

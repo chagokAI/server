@@ -1,6 +1,7 @@
 package com.skala.chagok.dlanalysis;
 
 import java.net.URI;
+import java.nio.file.Path;
 import java.time.Duration;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -11,7 +12,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param baseUrl 서버 주소. 로컬 실행 기준 http://127.0.0.1:8000
  * @param connectTimeout 연결 시간 상한. DL이 꺼져 있으면 이 시간 안에 재시도 대상으로 넘긴다
  * @param readTimeout 응답 시간 상한. CPU 기준 1건 0.3~0.5초(DL README)보다 넉넉히 둔다
+ * @param measurementLog 측정 결과 JSON Lines 파일 경로. 비우면 기록하지 않는다
  */
 @ConfigurationProperties("chagok.dl.measure")
-public record DlMeasureClientProperties(URI baseUrl, Duration connectTimeout, Duration readTimeout) {
+public record DlMeasureClientProperties(URI baseUrl, Duration connectTimeout, Duration readTimeout, Path measurementLog) {
 }

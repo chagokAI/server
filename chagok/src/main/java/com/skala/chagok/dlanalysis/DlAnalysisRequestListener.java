@@ -21,14 +21,17 @@ class DlAnalysisRequestListener {
     private final DlAnalysisItemEventRepository itemEvents;
     private final DlMeasureClient measureClient;
     private final DlAnalysisResultRecorder recorder;
+    private final DlMeasurementLog measurementLog;
 
     DlAnalysisRequestListener(
             DlAnalysisItemEventRepository itemEvents,
             DlMeasureClient measureClient,
-            DlAnalysisResultRecorder recorder) {
+            DlAnalysisResultRecorder recorder,
+            DlMeasurementLog measurementLog) {
         this.itemEvents = itemEvents;
         this.measureClient = measureClient;
         this.recorder = recorder;
+        this.measurementLog = measurementLog;
     }
 
     @KafkaListener(topics = "${chagok.kafka.dl-analysis-request.topic}")
@@ -43,6 +46,7 @@ class DlAnalysisRequestListener {
             return;
         }
 
+        long startedAt = System.nanoTime();
         DlMeasureResult result;
         try {
             result = measureClient.measure(request.imageRefs());
@@ -50,14 +54,15 @@ class DlAnalysisRequestListener {
             if (e.reason() == DlAnalysisFailureReason.DL_UNAVAILABLE) {
                 throw e;
             }
-            recorder.recordFailure(eventId, e.reason(), e.getMessage());
+            DlAnalysisOutcome outcome = recorder.recordFailure(eventId, e.reason(), e.getMessage());
+            measurementLog.write(eventId, null, null, outcome);
             return;
         }
+        long latencyMillis = (System.nanoTime() - startedAt) / 1_000_000;
 
-        if (!result.known()) {
-            recorder.recordFailure(eventId, DlAnalysisFailureReason.UNKNOWN_ITEM, "status=" + result.status());
-            return;
-        }
-        recorder.recordIdentified(eventId, snapshot.getWarehouseId(), result.barcode());
+        DlAnalysisOutcome outcome = result.known()
+                ? recorder.recordIdentified(eventId, snapshot.getWarehouseId(), result.barcode())
+                : recorder.recordFailure(eventId, DlAnalysisFailureReason.UNKNOWN_ITEM, "status=" + result.status());
+        measurementLog.write(eventId, result, latencyMillis, outcome);
     }
 }
