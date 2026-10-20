@@ -23,6 +23,7 @@ import jakarta.persistence.EntityManager;
  * <p>HTTP 진입점은 팀 합의 전이라 아직 없다. 진입점이 정해지면 그 컨트롤러가 이 서비스를 부른다.
  */
 @Service
+@KafkaIntegrationEnabled
 public class DlAnalysisAcceptService {
 
     private final DlAnalysisRequestProducer producer;

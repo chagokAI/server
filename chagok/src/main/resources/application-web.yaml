@@ -1,0 +1,7 @@
+# 프론트·업무 API 배포 검증: DB 작업은 사용하고 촬영 분석용 Kafka 빈은 등록하지 않는다.
+spring:
+  autoconfigure:
+    exclude: org.springframework.boot.kafka.autoconfigure.KafkaAutoConfiguration
+chagok:
+  kafka:
+    enabled: false

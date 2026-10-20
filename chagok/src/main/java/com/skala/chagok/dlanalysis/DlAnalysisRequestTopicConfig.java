@@ -18,6 +18,7 @@ import org.springframework.kafka.config.TopicBuilder;
  */
 @Configuration
 @EnableConfigurationProperties(DlAnalysisRequestTopicProperties.class)
+@KafkaIntegrationEnabled
 class DlAnalysisRequestTopicConfig {
 
     @Bean

@@ -32,6 +32,7 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 @ConditionalOnProperty(prefix = "chagok.dl.batch", name = "manifest")
 @EnableConfigurationProperties(DlAnalysisBatchAccepter.Properties.class)
+@KafkaIntegrationEnabled
 class DlAnalysisBatchAccepter implements ApplicationRunner {
 
     private static final String ACCEPTED_HEADER = "event_id\trun\toccurred_at\tbundle_id\texpected_barcode\taccept_status";
