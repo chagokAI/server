@@ -10,7 +10,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /** 성공한 비용 예측의 불변 결과. 조회 시 현재 단가로 과거 예측을 재계산하지 않는다. */
-@Entity @Table(name = "cost_forecast")
+@Entity @Table(name = "cost_forecast", indexes = @Index(name = "ix_cost_warehouse_month", columnList = "warehouse_id,target_month,generated_at"))
 @Getter @Builder @NoArgsConstructor(access = AccessLevel.PROTECTED) @AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class CostForecast {
     @Id @GeneratedValue(strategy = GenerationType.UUID) private UUID id;

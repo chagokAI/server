@@ -1,8 +1,6 @@
 package com.skala.chagok.global.web;
 
 import com.skala.chagok.global.error.BusinessException;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeParseException;
@@ -24,10 +22,4 @@ public final class QueryValues {
         if (from.isAfter(to)) throw BusinessException.invalidField("to", "from 이후 날짜여야 합니다.");
     }
 
-    public static BigDecimal change(Number current, Number previous) {
-        if (current == null || previous == null || previous.doubleValue() == 0) return null;
-        BigDecimal base = new BigDecimal(previous.toString());
-        return new BigDecimal(current.toString()).subtract(base).multiply(BigDecimal.valueOf(100))
-                .divide(base, 2, RoundingMode.HALF_UP);
-    }
 }

@@ -28,8 +28,7 @@ public record PurchaseOrderResponse(UUID id, String poNo, UUID proposalId, Purch
 
     public static PurchaseOrderResponse from(PurchaseOrder order, List<PurchaseOrderItem> rows) {
         var supplier = order.getSupplier(); var warehouse = order.getWarehouse();
-        List<Item> items = rows.stream().map(Item::from).sorted(Comparator.comparing(
-                i -> i.boxSpec().code(), Comparator.nullsLast(Comparator.naturalOrder()))).toList();
+        List<Item> items = rows.stream().map(Item::from).sorted(Comparator.comparing(Item::boxSpec, BoxSnapshot.ORDER)).toList();
         return new PurchaseOrderResponse(order.getId(), order.getPoNo(), order.getProposal() == null ? null : order.getProposal().getId(),
                 order.getStatus(), order.getCreatedAt(), order.getProposal() == null ? null : order.getProposal().getGeneratedAt(),
                 order.getApprovedAt(), order.getReceivedAt(), order.getRequestedDeliveryDate(),

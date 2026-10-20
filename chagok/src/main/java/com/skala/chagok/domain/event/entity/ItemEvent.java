@@ -11,6 +11,7 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Index;
 
 import java.math.BigDecimal;
 import java.util.Map;
@@ -25,7 +26,9 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 @Entity
-@Table(name = "item_event")
+@Table(name = "item_event", indexes = {
+        @Index(name = "ix_event_warehouse_time", columnList = "warehouse_id,occurred_at"),
+        @Index(name = "ix_event_warehouse_status", columnList = "warehouse_id,status")})
 @Getter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

@@ -16,6 +16,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Index;
 import jakarta.persistence.Version;
 
 import java.time.Instant;
@@ -31,7 +32,7 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 
 @Entity
-@Table(name = "purchase_order")
+@Table(name = "purchase_order", indexes = @Index(name = "ix_purchase_warehouse_created", columnList = "warehouse_id,created_at"))
 @Getter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

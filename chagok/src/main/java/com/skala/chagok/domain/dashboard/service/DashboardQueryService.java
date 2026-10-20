@@ -53,7 +53,7 @@ public class DashboardQueryService {
                         : BigDecimal.valueOf(e.getValue()).multiply(BigDecimal.valueOf(100))
                         .divide(BigDecimal.valueOf(totalDemand), 2, RoundingMode.HALF_UP))).toList();
         // 다음 달 말 예상 재고만 계산한다. 다른 대상 월은 중간 월 입출고를 알 수 없어 null이다.
-        Long projected = month.equals(current.plusMonths(1).toString()) && demand != null
+        Long projected = month.equals(current.plusMonths(1).toString()) && demand != null && proposal.result().totalQty() != null
                 && specs.stream().allMatch(s -> s.getOnHandQty() != null)
                 ? summary.totalOnHandQty() + proposal.result().totalQty() - demand : null;
         return new DashboardResponse(current.toString(), month, summary, stockBySize, shortages, projected,

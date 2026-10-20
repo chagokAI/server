@@ -26,7 +26,7 @@ public final class PageRequests {
      */
     public static Pageable of(int page, int size, String sort, Map<String, String> allowedSorts, String defaultSort) {
         String raw = (sort == null || sort.isBlank()) ? defaultSort : sort;
-        String[] parts = raw.split(",");
+        String[] parts = raw.split(",", -1);
         if (parts.length > 2) {
             throw BusinessException.invalidField("sort", "필드,asc|desc 형식이어야 합니다.");
         }

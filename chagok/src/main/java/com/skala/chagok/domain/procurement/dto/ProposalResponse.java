@@ -6,7 +6,7 @@ import java.time.Instant;
 import java.util.*;
 
 public record ProposalResponse(UUID id, UUID jobId, String targetMonth, Instant dataAsOf, Instant generatedAt,
-                               long totalQty, Long totalAmountKrw, Long forecastUsageQty, String currency,
+                               Long totalQty, Long totalAmountKrw, Long forecastUsageQty, String currency,
                                boolean vatIncluded, boolean snapshotComplete, Map<String, Object> analysis,
                                List<Item> items) {
     public record Item(BoxSnapshot boxSpec, Integer onHandQty, Integer safetyQty, Integer forecastUsageQty,
@@ -21,16 +21,15 @@ public record ProposalResponse(UUID id, UUID jobId, String targetMonth, Instant 
     }
 
     public static ProposalResponse from(ProcurementProposal proposal, List<ProcurementProposalItem> rows) {
-        List<Item> items = rows.stream().map(Item::from).sorted(Comparator.comparing(
-                i -> i.boxSpec().code(), Comparator.nullsLast(Comparator.naturalOrder()))).toList();
+        List<Item> items = rows.stream().map(Item::from).sorted(Comparator.comparing(Item::boxSpec, BoxSnapshot.ORDER)).toList();
         boolean hasAmounts = !items.isEmpty() && items.stream().allMatch(i -> i.amountKrw() != null);
         Long forecastUsage = items.isEmpty() || items.stream().anyMatch(i -> i.forecastUsageQty() == null) ? null
                 : items.stream().mapToLong(Item::forecastUsageQty).sum();
         return new ProposalResponse(proposal.getId(), proposal.getJobId(), proposal.getTargetMonth(),
                 proposal.getDataAsOf(), proposal.getGeneratedAt(),
-                items.stream().filter(i -> i.proposedQty() != null).mapToLong(Item::proposedQty).sum(),
+                items.stream().anyMatch(i -> i.proposedQty() == null) ? null : items.stream().mapToLong(Item::proposedQty).sum(),
                 hasAmounts ? items.stream().mapToLong(Item::amountKrw).sum() : null, forecastUsage, "KRW", false,
-                !items.isEmpty() && items.stream().allMatch(Item::snapshotAvailable),
+                !items.isEmpty() && items.stream().allMatch(i -> i.snapshotAvailable() && i.unitPriceKrw() != null),
                 proposal.getSummary() == null ? Map.of() : proposal.getSummary(), items);
     }
 }

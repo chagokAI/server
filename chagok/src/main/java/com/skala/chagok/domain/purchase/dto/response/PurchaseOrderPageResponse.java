@@ -13,11 +13,12 @@ public record PurchaseOrderPageResponse(List<Row> items, int page, int size, lon
                       List<String> boxCodes, int specCount, long totalQty, Long totalAmountKrw,
                       LocalDate deliveryDate, PurchaseOrderStatus status, Integer version) {
         public static Row from(PurchaseOrder order, List<PurchaseOrderItem> lines) {
-            var items = lines.stream().map(PurchaseOrderResponse.Item::from).toList();
+            var items = lines.stream().map(PurchaseOrderResponse.Item::from).sorted(Comparator.comparing(
+                    PurchaseOrderResponse.Item::boxSpec, com.skala.chagok.domain.box.dto.BoxSnapshot.ORDER)).toList();
             return new Row(order.getId(), order.getPoNo(), order.getCreatedAt(),
                     order.getSupplier() == null ? null : order.getSupplier().getId(),
                     order.getSupplier() == null ? null : order.getSupplier().getName(),
-                    items.stream().map(i -> i.boxSpec().code()).sorted(Comparator.nullsLast(Comparator.naturalOrder())).toList(),
+                    items.stream().map(i -> i.boxSpec().code()).toList(),
                     items.size(), PurchaseOrderResponse.totalQty(items), PurchaseOrderResponse.totalAmount(items),
                     order.getRequestedDeliveryDate(), order.getStatus(), order.getVersion());
         }

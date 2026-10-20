@@ -11,6 +11,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Index;
 
 import java.time.Instant;
 import java.util.Map;
@@ -27,7 +28,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 @Entity
-@Table(name = "procurement_proposal")
+@Table(name = "procurement_proposal", indexes = @Index(name = "ix_proposal_warehouse_month", columnList = "warehouse_id,target_month,generated_at"))
 @Getter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

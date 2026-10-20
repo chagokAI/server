@@ -11,6 +11,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Index;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -24,7 +25,7 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 
 @Entity
-@Table(name = "notification")
+@Table(name = "notification", indexes = @Index(name = "ix_notification_recipient_created", columnList = "recipient_id,created_at"))
 @Getter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
