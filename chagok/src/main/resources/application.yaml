@@ -73,7 +73,6 @@ chagok:
       base-url: ${DL_BASE_URL:http://127.0.0.1:8000}
       connect-timeout: 2s
       read-timeout: 10s
-chagok:
   timezone: Asia/Seoul
   refresh-after-seconds: 300
   inventory:
