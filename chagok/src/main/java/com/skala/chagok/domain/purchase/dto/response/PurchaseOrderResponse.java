@@ -9,7 +9,7 @@ import java.util.*;
 public record PurchaseOrderResponse(UUID id, String poNo, UUID proposalId, PurchaseOrderStatus status,
                                     Instant createdAt, Instant proposalGeneratedAt, Instant approvedAt, Instant receivedAt,
                                     LocalDate deliveryDate, SupplierInfo supplier, UserInfo requester, UserInfo approver,
-                                    Recipient recipient, String decisionReason, long totalQty, Long totalAmountKrw,
+                                    Recipient recipient, String decisionReason, Long totalQty, Long totalAmountKrw,
                                     String currency, boolean vatIncluded, Integer version, List<Item> items) {
     public record SupplierInfo(UUID id, String name, String paymentTerms, Short leadTimeDays) {}
     public record UserInfo(UUID id, String name, String department, String jobTitle) {
@@ -17,7 +17,7 @@ public record PurchaseOrderResponse(UUID id, String poNo, UUID proposalId, Purch
             return user == null ? null : new UserInfo(user.getId(), user.getName(), user.getDepartment(), user.getJobTitle());
         }
     }
-    public record Recipient(UUID warehouseId, String name, String address, String receivingHours) {}
+    public record Recipient(UUID warehouseId, String name, String address, String receivingHours, String receivingContact) {}
     public record Item(BoxSnapshot boxSpec, Integer qty, Integer unitPriceKrw, Long amountKrw, boolean snapshotAvailable) {
         public static Item from(PurchaseOrderItem item) {
             return new Item(item.getBoxSnapshot() == null ? BoxSnapshot.from(item.getBoxSpec()) : item.getBoxSnapshot(),
@@ -34,12 +34,14 @@ public record PurchaseOrderResponse(UUID id, String poNo, UUID proposalId, Purch
                 order.getApprovedAt(), order.getReceivedAt(), order.getRequestedDeliveryDate(),
                 supplier == null ? null : new SupplierInfo(supplier.getId(), supplier.getName(), supplier.getPaymentTerms(), supplier.getLeadTimeDays()),
                 UserInfo.from(order.getRequestedBy()), UserInfo.from(order.getApprover()),
-                new Recipient(warehouse.getId(), warehouse.getName(), warehouse.getAddress(), warehouse.getReceivingHours()),
+                new Recipient(warehouse.getId(), warehouse.getName(), warehouse.getAddress(), warehouse.getReceivingHours(), warehouse.getReceivingContact()),
                 order.getDecisionReason(), totalQty(items), totalAmount(items), "KRW", false, order.getVersion(), items);
     }
 
-    public static long totalQty(List<Item> items) { return items.stream().filter(i -> i.qty() != null).mapToLong(Item::qty).sum(); }
+    public static Long totalQty(List<Item> items) {
+        return items.isEmpty() || items.stream().anyMatch(i -> i.qty() == null) ? null : items.stream().mapToLong(Item::qty).sum();
+    }
     public static Long totalAmount(List<Item> items) {
-        return items.stream().anyMatch(i -> i.amountKrw() == null) ? null : items.stream().mapToLong(Item::amountKrw).sum();
+        return items.isEmpty() || items.stream().anyMatch(i -> i.amountKrw() == null) ? null : items.stream().mapToLong(Item::amountKrw).reduce(0L, Math::addExact);
     }
 }

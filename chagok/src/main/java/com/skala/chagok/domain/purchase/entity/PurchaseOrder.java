@@ -87,9 +87,31 @@ public class PurchaseOrder {
     @Column(name = "received_at", columnDefinition = "timestamptz")
     private Instant receivedAt;
 
+    @Column(name = "updated_at", columnDefinition = "timestamptz")
+    private Instant updatedAt;
+
     @Version
     @Column(name = "version")
     private Integer version;
+
+    public void receive(Instant now) {
+        this.status = PurchaseOrderStatus.RECEIVED;
+        this.receivedAt = now;
+    }
+
+    public void changeDeliveryDate(LocalDate date) { this.requestedDeliveryDate = date; }
+    public void touch() { this.updatedAt = Instant.now(); }
+    public void approve(AppUser user) {
+        this.status = PurchaseOrderStatus.APPROVED;
+        this.approver = user;
+        this.approvedAt = Instant.now();
+    }
+    public void reject(AppUser user, String reason) {
+        this.status = PurchaseOrderStatus.REJECTED;
+        this.approver = user;
+        this.decisionReason = reason;
+    }
+    public void ship() { this.status = PurchaseOrderStatus.IN_TRANSIT; }
 
     /**
      * 제안서를 바탕으로 승인된 발주서를 생성한다.

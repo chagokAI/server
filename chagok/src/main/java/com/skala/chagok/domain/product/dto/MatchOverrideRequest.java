@@ -7,7 +7,7 @@ import jakarta.validation.constraints.Size;
 import java.util.UUID;
 
 public record MatchOverrideRequest(
-        @NotNull Integer expectedVersion,
+        @NotNull @jakarta.validation.constraints.Min(0) Integer expectedVersion,
         @NotNull UUID boxSpecId,
         @NotBlank @Size(max = 200) String matchOverrideReason
 ) {

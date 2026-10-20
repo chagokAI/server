@@ -14,6 +14,8 @@ import java.util.UUID;
 public record ProductMatchResponse(
         UUID id,
         String code,
+        String barcode,
+        Integer weightG,
         String name,
         CategoryResponse category,
         String imageUrl,
@@ -38,6 +40,8 @@ public record ProductMatchResponse(
         return new ProductMatchResponse(
                 product.getId(),
                 product.getCode(),
+                product.getBarcode(),
+                product.getWeightG(),
                 product.getName(),
                 CategoryResponse.from(product.getCategory()),
                 product.getImageUrl(),

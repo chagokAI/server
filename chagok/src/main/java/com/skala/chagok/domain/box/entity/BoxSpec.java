@@ -95,6 +95,12 @@ public class BoxSpec {
     @Column(name = "forecast_updated_at", columnDefinition = "timestamptz")
     private Instant forecastUpdatedAt;
 
+    @Column(name = "safety_days")
+    private Integer safetyDays;
+
+    @Column(name = "alert_enabled")
+    private Boolean alertEnabled;
+
     @Version
     @Column(name = "version")
     private Integer version;
@@ -102,6 +108,18 @@ public class BoxSpec {
     /** 재고 관리 화면의 안전 재고 수정(INV-API-02). */
     public void updateSafetyQty(Integer safetyQty) {
         this.safetyQty = safetyQty;
+    }
+
+    public void updatePolicy(Integer qty, Integer days, Boolean alert, Integer target) {
+        if (qty != null) this.safetyQty = qty;
+        if (days != null) this.safetyDays = days;
+        if (alert != null) this.alertEnabled = alert;
+        if (target != null) this.targetQty = target;
+    }
+
+    public void changeStock(int quantity, Instant now) {
+        this.onHandQty = quantity;
+        this.stockUpdatedAt = now;
     }
 
     public void update(String code, String name, Character sizeClass,

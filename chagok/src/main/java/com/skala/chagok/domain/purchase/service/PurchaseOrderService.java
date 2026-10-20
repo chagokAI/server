@@ -39,13 +39,13 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class PurchaseOrderService {
 
-    private static final DateTimeFormatter PO_NO_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MMdd");
-
     private final PurchaseOrderRepository purchaseOrderRepository;
     private final PurchaseOrderItemRepository purchaseOrderItemRepository;
     private final ProcurementProposalRepository procurementProposalRepository;
     private final BoxSpecRepository boxSpecRepository;
     private final CurrentUserProvider currentUserProvider;
+    private final com.skala.chagok.domain.warehouse.repository.WarehouseRepository warehouses;
+    private final com.skala.chagok.global.config.ChagokProperties properties;
 
     /**
      * 발주 제안서를 승인해 박스 주문 발주서를 생성한다.
@@ -53,6 +53,9 @@ public class PurchaseOrderService {
      */
     @Transactional
     public PurchaseOrderCreateResponse create(UUID warehouseId, PurchaseOrderCreateRequest request) {
+        warehouses.lockById(warehouseId).orElseThrow(() -> new EntityNotFoundException("센터가 없습니다."));
+        if (request.requestedDeliveryDate().isBefore(LocalDate.now(properties.timezone())))
+            throw new IllegalArgumentException("납품 희망일은 오늘 이후여야 합니다.");
         UUID proposalId = request.proposalId();
         ProcurementProposal proposal = procurementProposalRepository.findById(proposalId)
                 .filter(p -> p.getWarehouse().getId().equals(warehouseId))
@@ -65,12 +68,15 @@ public class PurchaseOrderService {
         validateTotals(request);
         Map<UUID, BoxSpec> boxSpecs = loadBoxSpecs(warehouseId, request.items());
 
+        var user = currentUserProvider.getCurrentUser();
+        if (user.getWarehouse() == null || !warehouseId.equals(user.getWarehouse().getId()))
+            throw new com.skala.chagok.global.error.BusinessException(com.skala.chagok.global.error.ErrorCode.FORBIDDEN);
         PurchaseOrder purchaseOrder = PurchaseOrder.createApproved(
                 proposal.getWarehouse(),
                 generatePoNo(),
                 proposal,
                 resolveSupplier(boxSpecs.values()),
-                currentUserProvider.getCurrentUser(),
+                user,
                 request.requestedDeliveryDate());
         purchaseOrderRepository.save(purchaseOrder);
 
@@ -89,17 +95,17 @@ public class PurchaseOrderService {
             }
         }
 
-        int totalQty = request.items().stream()
-                .mapToInt(PurchaseOrderCreateRequest.Item::qty)
+        long totalQty = request.items().stream()
+                .mapToLong(PurchaseOrderCreateRequest.Item::qty)
                 .sum();
         if (totalQty != request.totalQty()) {
             throw new IllegalArgumentException(
                     "총 수량이 품목 합계와 일치하지 않습니다. 요청=" + request.totalQty() + ", 계산=" + totalQty);
         }
 
-        long totalAmount = request.items().stream()
-                .mapToLong(PurchaseOrderCreateRequest.Item::amountKrw)
-                .sum();
+        long totalAmount;
+        try { totalAmount = request.items().stream().mapToLong(PurchaseOrderCreateRequest.Item::amountKrw).reduce(0L, Math::addExact); }
+        catch (ArithmeticException e) { throw new IllegalArgumentException("총 금액 범위를 초과했습니다."); }
         if (totalAmount != request.totalAmountKrw()) {
             throw new IllegalArgumentException(
                     "총 금액이 품목 합계와 일치하지 않습니다. 요청=" + request.totalAmountKrw() + ", 계산=" + totalAmount);
@@ -122,6 +128,14 @@ public class PurchaseOrderService {
             missing.removeAll(boxSpecs.keySet());
             throw new EntityNotFoundException("박스 규격을 찾을 수 없습니다. boxSpecId=" + missing);
         }
+        for (var item : items) {
+            var box = boxSpecs.get(item.boxSpecId());
+            if (!Boolean.TRUE.equals(box.getIsActive()) || box.getUnitPriceKrw() == null || !box.getUnitPriceKrw().equals(item.unitPriceKrw()))
+                throw new IllegalArgumentException("활성 규격과 현재 단가를 확인하세요. boxSpecId=" + box.getId());
+        }
+        if (boxSpecs.values().stream().anyMatch(box -> box.getSupplier() == null)
+                || boxSpecs.values().stream().map(box -> box.getSupplier().getId()).distinct().count() != 1)
+            throw new IllegalArgumentException("공급사별로 발주서를 작성하세요.");
         return boxSpecs;
     }
 
@@ -135,11 +149,10 @@ public class PurchaseOrderService {
         return suppliers.size() == 1 ? suppliers.getFirst() : null;
     }
 
-    /** PO-2026-1101 형태로 발주번호를 만든다. 같은 날 두 번째부터는 뒤에 일련번호를 붙인다. */
+    /** 날짜와 임의 식별자로 센터 간에도 겹치지 않도록 발주번호를 만든다. */
     private String generatePoNo() {
-        String prefix = "PO-" + LocalDate.now().format(PO_NO_DATE_FORMAT);
-        long sameDayCount = purchaseOrderRepository.countByPoNoStartingWith(prefix);
-        return sameDayCount == 0 ? prefix : prefix + "-" + (sameDayCount + 1);
+        return "PO-" + LocalDate.now(properties.timezone()).format(DateTimeFormatter.BASIC_ISO_DATE)
+                + "-" + UUID.randomUUID().toString().substring(0, 8);
     }
 
     private void saveItems(PurchaseOrder purchaseOrder,

@@ -22,4 +22,11 @@ public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, UU
 
     @EntityGraph(attributePaths = {"supplier", "requestedBy", "approver", "warehouse", "proposal"})
     Optional<PurchaseOrder> findByIdAndWarehouseId(UUID id, UUID warehouseId);
+
+    @EntityGraph(attributePaths = {"supplier", "requestedBy", "approver", "warehouse", "proposal"})
+    java.util.List<PurchaseOrder> findByProposalIdOrderByPoNoAsc(UUID proposalId);
+
+    @EntityGraph(attributePaths = {"supplier", "warehouse"})
+    java.util.List<PurchaseOrder> findByWarehouseIdAndStatusInOrderByCreatedAtDesc(UUID warehouseId,
+            java.util.Collection<com.skala.chagok.domain.purchase.entity.PurchaseOrderStatus> statuses);
 }

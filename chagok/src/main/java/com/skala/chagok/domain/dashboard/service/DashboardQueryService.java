@@ -33,12 +33,14 @@ public class DashboardQueryService {
         Long demand = proposal.result() == null ? null : proposal.result().forecastUsageQty();
         Map<String, long[]> stocks = new TreeMap<>();
         specs.forEach(box -> {
-            long[] values = stocks.computeIfAbsent(sizeClass(box.getSizeClass()), key -> new long[2]);
+            long[] values = stocks.computeIfAbsent(sizeClass(box.getSizeClass()), key -> new long[4]);
             values[0] += qty(box.getOnHandQty()); values[1] += qty(box.getSafetyQty());
+            if (box.getOnHandQty() == null) values[2]++;
+            if (box.getSafetyQty() == null) values[3]++;
         });
         var stockBySize = stocks.entrySet().stream().sorted(Map.Entry.comparingByKey(sizeOrder()))
-                .map(e -> new DashboardResponse.StockBySize(e.getKey(), e.getValue()[0], e.getValue()[1])).toList();
-        var shortages = specs.stream().filter(box -> box.getSafetyQty() != null && qty(box.getOnHandQty()) < box.getSafetyQty())
+                .map(e -> new DashboardResponse.StockBySize(e.getKey(), e.getValue()[2] > 0 ? null : e.getValue()[0], e.getValue()[3] > 0 ? null : e.getValue()[1])).toList();
+        var shortages = specs.stream().filter(box -> box.getOnHandQty() != null && box.getSafetyQty() != null && box.getOnHandQty() < box.getSafetyQty())
                 .sorted(Comparator.comparing(BoxSpec::getCode))
                 .map(box -> new DashboardResponse.Shortage(box.getId(), box.getCode(), box.getName(), qty(box.getOnHandQty()),
                         box.getSafetyQty(), box.getSafetyQty() - qty(box.getOnHandQty()), box.getDaysToStockout())).toList();

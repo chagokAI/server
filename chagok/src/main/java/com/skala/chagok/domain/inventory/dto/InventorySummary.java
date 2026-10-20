@@ -15,7 +15,7 @@ import java.util.UUID;
  * @param lastUpdatedAt           규격별 재고 갱신 시각 중 가장 최근 값 ("마지막 업데이트")
  */
 public record InventorySummary(
-        long totalOnHandQty,
+        Long totalOnHandQty,
         int activeSpecCount,
         int shortageSpecCount,
         List<String> shortageSpecCodes,
@@ -24,7 +24,8 @@ public record InventorySummary(
         BigDecimal avgDaysToStockout,
         int targetDaysToStockout,
         OffsetDateTime lastUpdatedAt,
-        ForecastSource forecastSource
+        ForecastSource forecastSource,
+        int unknownSpecCount
 ) {
     public record ForecastSource(UUID proposalId, String targetMonth, Instant dataAsOf, Instant generatedAt) {}
 }

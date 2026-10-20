@@ -25,6 +25,7 @@ public class JobGenerationService {
     private final CostForecastRepository costs;
     private final JobProperties properties;
     private final Clock jobClock;
+    private final com.skala.chagok.domain.notification.service.DomainNotificationService notices;
 
     /** 결과 두 개와 작업 성공을 원자적으로 반영한다. version 충돌 시 생성 결과도 함께 롤백된다. */
     @Transactional(timeout = 60, isolation = Isolation.REPEATABLE_READ)
@@ -59,5 +60,7 @@ public class JobGenerationService {
                 .targetMonth(job.getTargetMonth()).dataAsOf(until).generatedAt(jobClock.instant()).result(result).build());
         job.succeed(proposal.getId(), cost.getId(), until, jobClock.instant());
         jobs.flush();
+        notices.publish(job.getWarehouse().getId(), "AI", job.getTargetMonth() + " 참고 제안서 생성",
+                "관측 기반 참고 계산이 완료되었습니다. 실제 소모량 예측이 아닙니다.", "/orders");
     }
 }

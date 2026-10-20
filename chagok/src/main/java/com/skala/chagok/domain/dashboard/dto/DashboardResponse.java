@@ -10,7 +10,7 @@ public record DashboardResponse(String currentMonth, String targetMonth, Invento
                                  List<StockBySize> stockBySize, List<Shortage> shortages, Long projectedStockQty,
                                  DemandForecast demandForecast, LatestResult<CostForecastResponse> currentMonthCost,
                                  LatestResult<CostForecastResponse> targetMonthCost) {
-    public record StockBySize(String sizeClass, long onHandQty, long safetyQty) {}
+    public record StockBySize(String sizeClass, Long onHandQty, Long safetyQty) {}
     public record Shortage(UUID boxSpecId, String code, String name, long onHandQty, long safetyQty,
                            long shortageQty, Integer daysToStockout) {}
     public record DemandForecast(LatestResult<ProposalResponse> proposal, Long totalForecastUsageQty,

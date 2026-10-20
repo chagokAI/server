@@ -12,7 +12,7 @@ import java.util.UUID;
  * boxSpecId가 현재 매칭 박스와 다르면 직접 지정으로 보고 matchOverrideReason이 필수다.
  */
 public record ProductUpdateRequest(
-        @NotNull Integer expectedVersion,
+        @NotNull @jakarta.validation.constraints.Min(0) Integer expectedVersion,
         @Size(min = 1, max = 100) String name,
         UUID categoryId,
         @Positive Integer widthMm,
@@ -20,6 +20,8 @@ public record ProductUpdateRequest(
         @Positive Integer heightMm,
         @Size(min = 1, max = 500) String imageUrl,
         UUID boxSpecId,
-        @Size(max = 200) String matchOverrideReason
+        @Size(max = 200) String matchOverrideReason,
+        @jakarta.validation.constraints.Pattern(regexp = "[0-9]{1,30}") String barcode,
+        @jakarta.validation.constraints.PositiveOrZero Integer weightG
 ) {
 }

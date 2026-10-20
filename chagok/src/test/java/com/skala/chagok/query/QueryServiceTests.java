@@ -116,8 +116,10 @@ class QueryServiceTests {
                 .warehouse(Warehouse.builder().id(warehouseId).build()).build()));
         when(boxes.findAllById(any())).thenReturn(List.of(BoxSpec.builder().id(boxId)
                 .warehouse(Warehouse.builder().id(UUID.randomUUID()).build()).build()));
+        var warehouses = mock(com.skala.chagok.domain.warehouse.repository.WarehouseRepository.class);
+        when(warehouses.lockById(warehouseId)).thenReturn(Optional.of(Warehouse.builder().id(warehouseId).build()));
         var service = new PurchaseOrderService(orders, mock(PurchaseOrderItemRepository.class), proposals, boxes,
-                mock(CurrentUserProvider.class));
+                mock(CurrentUserProvider.class), warehouses, properties);
         var request = new PurchaseOrderCreateRequest(proposalId,
                 List.of(new PurchaseOrderCreateRequest.Item(boxId, 1, 180, 180L)), 1, 180L, LocalDate.now().plusDays(1));
         assertThatThrownBy(() -> service.create(warehouseId, request)).isInstanceOf(EntityNotFoundException.class);

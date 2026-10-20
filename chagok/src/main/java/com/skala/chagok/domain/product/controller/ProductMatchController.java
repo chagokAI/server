@@ -61,6 +61,12 @@ public class ProductMatchController {
     }
 
     /** MATCH-API-03 */
+    @GetMapping("/products/{productId}/box-candidates")
+    public ApiResponse<java.util.List<com.skala.chagok.domain.product.dto.MatchCandidateResponse>> candidates(
+            @PathVariable UUID warehouseId, @PathVariable UUID productId) {
+        return apiResponses.of(productMatchService.getProduct(warehouseId, productId).matchCandidates());
+    }
+
     @PatchMapping("/products/{productId}")
     public ApiResponse<ProductDetailResponse> updateProduct(@PathVariable UUID warehouseId,
                                                             @PathVariable UUID productId,

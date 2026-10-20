@@ -31,7 +31,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 @Entity
-@Table(name = "product")
+@Table(name = "product", uniqueConstraints = @jakarta.persistence.UniqueConstraint(name = "uq_product_barcode", columnNames = {"warehouse_id", "barcode"}))
 @Getter
 @Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -49,6 +49,12 @@ public class Product {
 
     @Column(name = "code", length = 30)
     private String code;
+
+    @Column(name = "barcode", length = 30)
+    private String barcode;
+
+    @Column(name = "weight_g")
+    private Integer weightG;
 
     @Column(name = "name", length = 100)
     private String name;
@@ -99,7 +105,7 @@ public class Product {
     @Column(name = "version")
     private Integer version;
 
-    /** 전달된 값만 반영한다. 매칭 상태는 박스를 직접 지정할 때만 바뀐다({@link #overrideMatch}). */
+    /** 전달된 값만 반영한다. 변경 후 서비스에서 기존 매칭을 재검증한다. */
     public void update(String name, Category category,
                        Integer widthMm, Integer depthMm, Integer heightMm, String imageUrl) {
         if (name != null) {
@@ -134,5 +140,24 @@ public class Product {
     /** 상품 삭제는 소프트 삭제다. 이벤트·이력이 상품을 참조하므로 행을 지우지 않는다. */
     public void deactivate() {
         this.isActive = false;
+    }
+
+    public void updateIdentity(String barcode, Integer weightG) {
+        if (barcode != null) this.barcode = barcode;
+        if (weightG != null) this.weightG = weightG;
+    }
+
+    public void refreshMatch(BigDecimal rate) {
+        this.fillRatePct = rate;
+        this.matchStatus = "MANUAL".equals(matchSource) || rate.compareTo(BigDecimal.valueOf(85)) >= 0
+                ? MatchStatus.MATCHED : MatchStatus.REVIEW;
+    }
+
+    public void clearMatch() {
+        this.matchedBoxSpec = null;
+        this.fillRatePct = null;
+        this.matchStatus = MatchStatus.UNMATCHED;
+        this.matchSource = null;
+        this.matchOverrideReason = null;
     }
 }

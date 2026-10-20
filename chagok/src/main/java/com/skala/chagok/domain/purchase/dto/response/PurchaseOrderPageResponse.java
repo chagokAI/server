@@ -8,9 +8,9 @@ import java.util.*;
 public record PurchaseOrderPageResponse(List<Row> items, int page, int size, long totalElements, int totalPages,
                                         Map<String, Long> counts, Summary summary, LocalDate from, LocalDate to) {
     public record Summary(long totalOrderCount, BigDecimal totalAmountKrw, long pendingCount,
-                          BigDecimal averageDeliveryLeadTimeDays, long receivedSampleCount) {}
+                          BigDecimal averageDeliveryLeadTimeDays, long receivedSampleCount, long inProgressCount, long incompleteAmountOrderCount) {}
     public record Row(UUID id, String poNo, Instant createdAt, UUID supplierId, String supplierName,
-                      List<String> boxCodes, int specCount, long totalQty, Long totalAmountKrw,
+                      List<String> boxCodes, int specCount, Long totalQty, Long totalAmountKrw,
                       LocalDate deliveryDate, PurchaseOrderStatus status, Integer version) {
         public static Row from(PurchaseOrder order, List<PurchaseOrderItem> lines) {
             var items = lines.stream().map(PurchaseOrderResponse.Item::from).sorted(Comparator.comparing(

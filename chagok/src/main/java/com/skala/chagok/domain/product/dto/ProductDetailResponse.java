@@ -10,6 +10,8 @@ import java.util.UUID;
 public record ProductDetailResponse(
         UUID id,
         String code,
+        String barcode,
+        Integer weightG,
         String name,
         CategoryResponse category,
         String imageUrl,
@@ -22,13 +24,20 @@ public record ProductDetailResponse(
         String matchSource,
         String matchOverrideReason,
         Boolean isActive,
-        Integer version
+        Integer version,
+        java.util.List<MatchCandidateResponse> matchCandidates
 ) {
 
     public static ProductDetailResponse from(Product product) {
+        return from(product, java.util.List.of());
+    }
+
+    public static ProductDetailResponse from(Product product, java.util.List<MatchCandidateResponse> candidates) {
         return new ProductDetailResponse(
                 product.getId(),
                 product.getCode(),
+                product.getBarcode(),
+                product.getWeightG(),
                 product.getName(),
                 CategoryResponse.from(product.getCategory()),
                 product.getImageUrl(),
@@ -41,7 +50,8 @@ public record ProductDetailResponse(
                 product.getMatchSource(),
                 product.getMatchOverrideReason(),
                 product.getIsActive(),
-                product.getVersion()
+                product.getVersion(),
+                candidates
         );
     }
 }

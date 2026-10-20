@@ -7,12 +7,12 @@ import java.util.Arrays;
 /**
  * 수동 박스 지정(MATCH-API-04)용 계산. 회전을 허용해 세 변을 정렬한 뒤 비교한다.
  */
-final class FillRateCalculator {
+public final class FillRateCalculator {
 
     private FillRateCalculator() {
     }
 
-    static boolean fits(int[] productDims, int[] boxDims) {
+    public static boolean fits(int[] productDims, int[] boxDims) {
         int[] product = productDims.clone();
         int[] box = boxDims.clone();
         Arrays.sort(product);
@@ -26,7 +26,7 @@ final class FillRateCalculator {
     }
 
     /** 상품 부피 ÷ 박스 내부 부피 × 100, 소수 둘째 자리 반올림. */
-    static BigDecimal fillRatePct(int[] productDims, int[] boxDims) {
+    public static BigDecimal fillRatePct(int[] productDims, int[] boxDims) {
         BigDecimal productVolume = volume(productDims);
         BigDecimal boxVolume = volume(boxDims);
         return productVolume.multiply(BigDecimal.valueOf(100))
@@ -34,6 +34,6 @@ final class FillRateCalculator {
     }
 
     private static BigDecimal volume(int[] dims) {
-        return BigDecimal.valueOf((long) dims[0] * dims[1] * dims[2]);
+        return BigDecimal.valueOf(dims[0]).multiply(BigDecimal.valueOf(dims[1])).multiply(BigDecimal.valueOf(dims[2]));
     }
 }

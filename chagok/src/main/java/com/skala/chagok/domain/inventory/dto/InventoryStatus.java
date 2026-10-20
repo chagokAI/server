@@ -9,13 +9,16 @@ import com.skala.chagok.domain.box.entity.BoxSpec;
 public enum InventoryStatus {
     /** 충분 */
     SUFFICIENT,
+    /** 현재 재고 또는 안전 재고가 확인되지 않음 */
+    UNKNOWN,
     /** 주의: 예상 소진일이 (공급사 리드타임 + 여유일) 이하 → 지금 발주하지 않으면 입고 전에 바닥난다 */
     CAUTION,
     /** 부족: 현재 재고가 안전 재고 미만 */
     SHORTAGE;
 
     public static InventoryStatus of(BoxSpec boxSpec, int cautionBufferDays) {
-        int onHand = boxSpec.getOnHandQty() == null ? 0 : boxSpec.getOnHandQty();
+        if (boxSpec.getOnHandQty() == null || boxSpec.getSafetyQty() == null) return UNKNOWN;
+        int onHand = boxSpec.getOnHandQty();
         if (boxSpec.getSafetyQty() != null && onHand < boxSpec.getSafetyQty()) {
             return SHORTAGE;
         }

@@ -24,13 +24,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class PurchaseOrderController {
 
     private final PurchaseOrderService purchaseOrderService;
+    private final com.skala.chagok.global.response.ApiResponses responses;
 
     /** 발주 제안서를 승인해 박스 주문 발주서를 생성한다. */
     @PostMapping
-    public ResponseEntity<PurchaseOrderCreateResponse> create(
+    public ResponseEntity<com.skala.chagok.global.response.ApiResponse<PurchaseOrderCreateResponse>> create(
             @PathVariable UUID warehouseId,
             @Valid @RequestBody PurchaseOrderCreateRequest request) {
         PurchaseOrderCreateResponse response = purchaseOrderService.create(warehouseId, request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        return ResponseEntity.status(HttpStatus.CREATED).body(responses.of(response));
     }
 }

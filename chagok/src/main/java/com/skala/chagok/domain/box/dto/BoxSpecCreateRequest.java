@@ -18,8 +18,12 @@ public record BoxSpecCreateRequest(
         @NotNull @Positive Integer innerHeightMm,
         @Size(max = 50) String material,
         UUID supplierId,
-        @PositiveOrZero Integer unitPriceKrw,
+        @NotNull @PositiveOrZero Integer unitPriceKrw,
         @NotNull Boolean isCustom,
-        @Size(max = 200) String description
+        @Size(max = 200) String description,
+        Boolean isActive,
+        @PositiveOrZero Integer initialOnHandQty,
+        @PositiveOrZero Integer safetyQty,
+        @PositiveOrZero Integer targetQty
 ) {
 }

@@ -29,6 +29,7 @@ spring:
     deserialization:
       # 정의된 필드 외 입력은 거부한다.
       fail-on-unknown-properties: true
+      accept-float-as-int: false
 
   sql:
     init:
@@ -89,3 +90,24 @@ chagok:
   inventory:
     caution-buffer-days: 3
     target-days-to-stockout: 14
+
+  auth:
+    enabled: ${AUTH_ENABLED:true}
+  bootstrap:
+    enabled: ${BOOTSTRAP_ENABLED:false}
+    employee-id: ${BOOTSTRAP_EMPLOYEE_ID:}
+    password: ${BOOTSTRAP_PASSWORD:}
+    user-name: ${BOOTSTRAP_USER_NAME:초기 운영자}
+    warehouse-id: ${BOOTSTRAP_WAREHOUSE_ID:}
+    warehouse-name: ${BOOTSTRAP_WAREHOUSE_NAME:차곡 로컬 센터}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+
+server:
+  servlet:
+    session:
+      timeout: 30m
+      cookie:
+        http-only: true
+        same-site: lax
+        secure: ${SESSION_COOKIE_SECURE:false}

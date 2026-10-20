@@ -12,7 +12,7 @@ import java.util.UUID;
  * 전달된 필드만 수정한다.
  */
 public record BoxSpecUpdateRequest(
-        @NotNull Integer expectedVersion,
+        @NotNull @jakarta.validation.constraints.Min(0) Integer expectedVersion,
         @Size(min = 1, max = 20) String code,
         @Size(min = 1, max = 50) String name,
         @Pattern(regexp = "^[A-Z]$", message = "영문 대문자 한 글자여야 합니다.") String sizeClass,

@@ -1,0 +1,253 @@
+package com.skala.chagok.workflow;
+
+import com.skala.chagok.domain.box.dto.BoxSnapshot;
+import com.skala.chagok.domain.box.entity.BoxSpec;
+import com.skala.chagok.domain.procurement.entity.*;
+import com.skala.chagok.domain.purchase.service.PurchaseOrderQueryService;
+import com.skala.chagok.domain.user.entity.AppUser;
+import com.skala.chagok.domain.warehouse.entity.Warehouse;
+import com.skala.chagok.global.auth.CurrentUserProvider;
+import jakarta.persistence.EntityManager;
+import java.time.*;
+import java.util.*;
+import org.junit.jupiter.api.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+/** 각 테스트의 트랜잭션은 롤백한다. 개발 데이터와 Kafka는 변경하지 않는다. */
+@SpringBootTest(properties = "chagok.auth.enabled=false") @AutoConfigureMockMvc @Transactional
+class SpringWorkflowIntegrationTest {
+    @Autowired MockMvc mvc;
+    @Autowired JdbcTemplate jdbc;
+    @Autowired EntityManager em;
+    @Autowired PurchaseOrderQueryService queries;
+    @MockitoBean CurrentUserProvider users;
+    final UUID warehouse = UUID.randomUUID(), box = UUID.randomUUID(), product = UUID.randomUUID(),
+            supplier = UUID.randomUUID(), user = UUID.randomUUID();
+    final JsonMapper json = JsonMapper.builder().build();
+    String base() { return "/api/v1/warehouses/" + warehouse; }
+
+    @BeforeEach void fixtures() {
+        jdbc.update("insert into warehouse(id,name) values (?, '와이어프레임 테스트')", warehouse);
+        jdbc.update("insert into supplier(id,warehouse_id,name,lead_time_days) values (?,?,'공급사',5)", supplier, warehouse);
+        jdbc.update("insert into app_user(id,warehouse_id,employee_no,name,role) values (?,?,?,'담당자','OPERATOR')", user, warehouse, user.toString().substring(0, 20));
+        jdbc.update("""
+                insert into box_spec(id,warehouse_id,code,name,size_class,inner_width_mm,inner_depth_mm,inner_height_mm,
+                    on_hand_qty,safety_qty,target_qty,unit_price_krw,supplier_id,is_active,is_custom,alert_enabled,version)
+                values (?,?,'S-1','소형','S',200,150,100,100,20,200,180,?,true,false,true,0)
+                """, box, warehouse, supplier);
+        jdbc.update("""
+                insert into product(id,warehouse_id,code,name,width_mm,depth_mm,height_mm,matched_box_spec_id,
+                    fill_rate_pct,match_status,match_source,is_active,version)
+                values (?,?,'SKU-1','상품',100,100,50,?,16.67,'MATCHED','MANUAL',true,0)
+                """, product, warehouse, box);
+        when(users.getCurrentUser()).thenReturn(em.find(AppUser.class, user));
+    }
+
+    JsonNode postJson(String path, Map<String, ?> input, int status) throws Exception {
+        var response = mvc.perform(post(base() + path).contentType("application/json").content(json.writeValueAsString(input)))
+                .andExpect(status().is(status)).andReturn().getResponse().getContentAsString();
+        return json.readTree(response).path("data");
+    }
+    JsonNode patchJson(String path, Map<String, ?> input, int status) throws Exception {
+        var response = mvc.perform(patch(base() + path).contentType("application/json").content(json.writeValueAsString(input)))
+                .andExpect(status().is(status)).andReturn().getResponse().getContentAsString();
+        return json.readTree(response).path("data");
+    }
+    int version() { return jdbc.queryForObject("select version from box_spec where id=?", Integer.class, box); }
+    UUID proposal() {
+        var p = ProcurementProposal.builder().warehouse(em.find(Warehouse.class, warehouse))
+                .targetMonth(YearMonth.now(ZoneId.of("Asia/Seoul")).toString()).summary(Map.of("method", "OBSERVATION_BASELINE")).build();
+        em.persist(p);
+        var b = em.find(BoxSpec.class, box);
+        em.persist(ProcurementProposalItem.builder().proposal(p).boxSpec(b).boxSnapshot(BoxSnapshot.from(b))
+                .proposedQty(100).forecastUsageQty(310).onHandQty(100).safetyQty(20).unitPriceKrw(180).build());
+        em.flush(); return p.getId();
+    }
+    JsonNode draft() throws Exception {
+        return postJson("/purchase-orders/from-proposal", Map.of("proposalId", proposal().toString()), 201).path("orders").get(0);
+    }
+    JsonNode approve(JsonNode order) throws Exception {
+        return patchJson("/purchase-orders/" + order.path("id").asText(), Map.of("expectedVersion", order.path("version").asInt(), "status", "APPROVED"), 200);
+    }
+
+    @Test void dimensionChangesRecalculateRateAndReturnRealCandidatesWithWeightAndBarcode() throws Exception {
+        var result = patchJson("/products/" + product, Map.of("expectedVersion", 0, "widthMm", 200, "depthMm", 150,
+                "heightMm", 100, "barcode", "0012345678901", "weightG", 680, "boxSpecId", box.toString()), 200);
+        assertThat(result.path("fillRatePct").decimalValue()).isEqualByComparingTo("100");
+        assertThat(result.path("barcode").asText()).isEqualTo("0012345678901");
+        assertThat(result.path("weightG").asInt()).isEqualTo(680);
+        assertThat(result.path("matchCandidates").get(0).path("source").asText()).isEqualTo("DIMENSIONS");
+        mvc.perform(get(base() + "/products/" + product + "/box-candidates")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].selected").value(true));
+    }
+
+    @Test void oversizedProductAndInactiveBoxInvalidateStaleMatching() throws Exception {
+        var result = patchJson("/products/" + product, Map.of("expectedVersion", 0, "widthMm", 300), 200);
+        assertThat(result.path("matchStatus").asText()).isEqualTo("UNMATCHED");
+        assertThat(result.path("fillRatePct").isNull()).isTrue();
+        patchJson("/box-specs/" + box, Map.of("expectedVersion", version(), "isActive", false), 200);
+        mvc.perform(get(base() + "/products/" + product)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.matchCandidates").isEmpty());
+    }
+
+    @Test void changingBoxDimensionsRecalculatesConnectedProducts() throws Exception {
+        patchJson("/box-specs/" + box, Map.of("expectedVersion", 0, "innerWidthMm", 100), 200);
+        mvc.perform(get(base() + "/products/" + product)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.fillRatePct").value(33.33));
+        patchJson("/box-specs/" + box, Map.of("expectedVersion", version(), "innerHeightMm", 1), 200);
+        mvc.perform(get(base() + "/products/" + product)).andExpect(jsonPath("$.data.matchStatus").value("UNMATCHED"));
+    }
+
+    @Test void newSpecHasExplicitStockDefaultsAndRequiresAUnitPrice() throws Exception {
+        var input = new HashMap<String, Object>(Map.of("code", "M-1", "name", "중형", "sizeClass", "M", "innerWidthMm", 300,
+                "innerDepthMm", 200, "innerHeightMm", 100, "isCustom", false));
+        postJson("/box-specs", input, 400);
+        input.put("unitPriceKrw", 250); input.put("isActive", false);
+        var created = postJson("/box-specs", input, 201);
+        assertThat(created.path("isActive").asBoolean()).isFalse();
+        assertThat(jdbc.queryForObject("select on_hand_qty from box_spec where id=?", Integer.class, UUID.fromString(created.path("id").asText()))).isZero();
+    }
+
+    @Test void safetyDaysArePersistedAndCalculatedFromAvailableReferenceWithoutClaimingActualConsumption() throws Exception {
+        proposal();
+        var result = patchJson("/box-inventories/" + box + "/policy", Map.of("expectedVersion", 0, "safetyDays", 7, "alertEnabled", false), 200);
+        int expected = (int) Math.ceil(310.0 * 7 / YearMonth.now(ZoneId.of("Asia/Seoul")).lengthOfMonth());
+        assertThat(result.path("safetyQty").asInt()).isEqualTo(expected);
+        assertThat(result.path("usageSource").asText()).isEqualTo("REFERENCE_FORECAST");
+        assertThat(result.path("alertEnabled").asBoolean()).isFalse();
+        mvc.perform(get(base() + "/box-inventories")).andExpect(jsonPath("$.data.items[0].safetyDays").value(7));
+    }
+
+    @Test void absentUsageRejectsDayOnlyCalculationButAllowsExplicitQuantityAndSavesAnAlert() throws Exception {
+        patchJson("/box-inventories/" + box + "/policy", Map.of("expectedVersion", 0, "safetyDays", 7), 409);
+        patchJson("/box-inventories/" + box + "/policy", Map.of("expectedVersion", 0, "safetyDays", 7, "safetyQty", 200), 200);
+        assertThat(jdbc.queryForObject("select count(*) from notification where recipient_id=? and category='INVENTORY'", Integer.class, user)).isEqualTo(1);
+    }
+
+    @Test void receiptIsIdempotentAndVersionConflictsCannotChangeStock() throws Exception {
+        var input = Map.of("requestId", UUID.randomUUID().toString(), "boxSpecId", box.toString(), "expectedVersion", 0,
+                "qty", 50, "receivedDate", LocalDate.now(ZoneId.of("Asia/Seoul")).toString());
+        var first = postJson("/inventory-receipts", input, 201);
+        assertThat(postJson("/inventory-receipts", input, 201).path("id").asText()).isEqualTo(first.path("id").asText());
+        assertThat(jdbc.queryForObject("select on_hand_qty from box_spec where id=?", Integer.class, box)).isEqualTo(150);
+        var changed = new HashMap<String, Object>(input); changed.put("qty", 51);
+        postJson("/inventory-receipts", changed, 409);
+        changed.put("requestId", UUID.randomUUID().toString()); postJson("/inventory-receipts", changed, 409);
+    }
+
+    @Test void countedAdjustmentKeepsAnAuditAndUpdatesStockSummary() throws Exception {
+        var result = postJson("/inventory-adjustments", Map.of("requestId", UUID.randomUUID().toString(), "boxSpecId", box.toString(),
+                "expectedVersion", 0, "onHandQty", 5, "reason", "실사 확인"), 201);
+        assertThat(result.path("deltaQty").asInt()).isEqualTo(-95);
+        mvc.perform(get(base() + "/box-inventories")).andExpect(jsonPath("$.data.summary.totalOnHandQty").value(5))
+                .andExpect(jsonPath("$.data.items[0].status").value("SHORTAGE"));
+    }
+
+    @Test void draftsAreIdempotentAndApprovalRejectsOldVersionAndInvalidStateTransitions() throws Exception {
+        UUID proposal = proposal();
+        var first = postJson("/purchase-orders/from-proposal", Map.of("proposalId", proposal.toString()), 201).path("orders").get(0);
+        var again = postJson("/purchase-orders/from-proposal", Map.of("proposalId", proposal.toString()), 200).path("orders").get(0);
+        assertThat(again.path("id").asText()).isEqualTo(first.path("id").asText());
+        var edited = patchJson("/purchase-orders/" + first.path("id").asText(), Map.of("expectedVersion", 0,
+                "items", List.of(Map.of("boxSpecId", box.toString(), "qty", 200))), 200);
+        assertThat(edited.path("version").asInt()).isGreaterThan(first.path("version").asInt());
+        patchJson("/purchase-orders/" + first.path("id").asText(), Map.of("expectedVersion", 0, "status", "APPROVED"), 409);
+        var approved = approve(edited);
+        patchJson("/purchase-orders/" + approved.path("id").asText(), Map.of("expectedVersion", approved.path("version").asInt(), "status", "RECEIVED"), 409);
+        assertThat(approved.path("totalAmountKrw").asLong()).isEqualTo(36000);
+    }
+
+    @Test void partialReceiptsRejectOverReceiptAndCompleteOrderOnlyWhenAllBoxesArrive() throws Exception {
+        var order = approve(draft());
+        var input = new HashMap<String, Object>(Map.of("requestId", UUID.randomUUID().toString(), "boxSpecId", box.toString(),
+                "expectedVersion", version(), "purchaseOrderId", order.path("id").asText(), "qty", 40,
+                "receivedDate", LocalDate.now(ZoneId.of("Asia/Seoul")).toString()));
+        postJson("/inventory-receipts", input, 201);
+        mvc.perform(get(base() + "/purchase-orders/open")).andExpect(jsonPath("$.data[0].items[0].remainingQty").value(60));
+        input.put("requestId", UUID.randomUUID().toString()); input.put("expectedVersion", version()); input.put("qty", 61);
+        postJson("/inventory-receipts", input, 400);
+        input.put("qty", 60); postJson("/inventory-receipts", input, 201);
+        mvc.perform(get(base() + "/purchase-orders/" + order.path("id").asText())).andExpect(jsonPath("$.data.status").value("RECEIVED"));
+        mvc.perform(get(base() + "/purchase-orders/open")).andExpect(jsonPath("$.data").isEmpty());
+    }
+
+    @Test void inProgressSummaryCountsApprovedAndShippingAndAmountSortUsesWholeResultSet() throws Exception {
+        approve(draft());
+        var second = draft();
+        var edited = patchJson("/purchase-orders/" + second.path("id").asText(), Map.of("expectedVersion", 0,
+                "items", List.of(Map.of("boxSpecId", box.toString(), "qty", 200))), 200);
+        approve(edited);
+        var result = queries.list(warehouse, LocalDate.now().minusDays(1), LocalDate.now().plusDays(1), null, null, 0, 1, "totalAmountKrw,desc");
+        assertThat(result.summary().inProgressCount()).isEqualTo(2);
+        assertThat(result.summary().pendingCount()).isZero();
+        assertThat(result.items().getFirst().totalAmountKrw()).isEqualTo(36000);
+        assertThat(queries.list(warehouse, LocalDate.now().minusDays(1), LocalDate.now().plusDays(1), null, null,
+                0, 1, "totalAmountKrw,asc").items().getFirst().totalAmountKrw()).isEqualTo(18000);
+    }
+
+    @Test void malformedNumbersAndUnrelatedTenantIdsDoNotChangeData() throws Exception {
+        mvc.perform(patch(base() + "/products/" + product).contentType("application/json")
+                .content("{\"expectedVersion\":0,\"widthMm\":12.5}")).andExpect(status().isBadRequest());
+        patchJson("/products/" + UUID.randomUUID(), Map.of("expectedVersion", 0, "weightG", 1), 404);
+        patchJson("/products/" + product, Map.of("expectedVersion", -1, "weightG", 1), 400);
+    }
+
+    @Test void unavailableStockStaysUnknownUntilAnExplicitCountedAdjustment() throws Exception {
+        jdbc.update("update box_spec set on_hand_qty=null where id=?", box);
+        mvc.perform(get(base() + "/box-inventories")).andExpect(jsonPath("$.data.items[0].status").value("UNKNOWN"))
+                .andExpect(jsonPath("$.data.summary.totalOnHandQty").isEmpty()).andExpect(jsonPath("$.data.summary.unknownSpecCount").value(1));
+        var movement = postJson("/inventory-adjustments", Map.of("requestId", UUID.randomUUID().toString(), "boxSpecId", box.toString(),
+                "expectedVersion", 0, "onHandQty", 15, "reason", "최초 실사"), 201);
+        assertThat(movement.path("beforeQty").isNull()).isTrue();
+        assertThat(movement.path("deltaQty").isNull()).isTrue();
+        mvc.perform(get(base() + "/box-inventories/" + box + "/movements")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].afterQty").value(15));
+    }
+
+    @Test void supplierGroupsBecomeSeparateDraftsAndRepeatedRequestsReuseThem() throws Exception {
+        UUID secondSupplier = UUID.randomUUID(), secondBox = UUID.randomUUID();
+        jdbc.update("insert into supplier(id,warehouse_id,name,lead_time_days) values (?,?,'다른 공급사',3)", secondSupplier, warehouse);
+        jdbc.update("insert into box_spec(id,warehouse_id,code,name,is_active,unit_price_krw,supplier_id,version) values (?,?,'M-1','중형',true,250,?,0)",
+                secondBox, warehouse, secondSupplier);
+        UUID proposalId = proposal();
+        em.persist(ProcurementProposalItem.builder().proposal(em.find(ProcurementProposal.class, proposalId)).boxSpec(em.find(BoxSpec.class, secondBox))
+                .proposedQty(50).forecastUsageQty(30).unitPriceKrw(250).build()); em.flush();
+        var created = postJson("/purchase-orders/from-proposal", Map.of("proposalId", proposalId.toString()), 201).path("orders");
+        assertThat(created.size()).isEqualTo(2);
+        assertThat(created.get(0).path("supplier").path("id").asText()).isNotEqualTo(created.get(1).path("supplier").path("id").asText());
+        var again = postJson("/purchase-orders/from-proposal", Map.of("proposalId", proposalId.toString()), 200).path("orders");
+        assertThat(again.size()).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select count(*) from purchase_order where proposal_id=?", Integer.class, proposalId)).isEqualTo(2);
+    }
+
+    @Test void futureReceiptAndUnrelatedSpecAreRejectedWithoutChangingStock() throws Exception {
+        var input = new HashMap<String, Object>(Map.of("requestId", UUID.randomUUID().toString(), "boxSpecId", box.toString(),
+                "expectedVersion", 0, "qty", 10, "receivedDate", LocalDate.now(ZoneId.of("Asia/Seoul")).plusDays(1).toString()));
+        postJson("/inventory-receipts", input, 400);
+        input.put("receivedDate", LocalDate.now(ZoneId.of("Asia/Seoul")).toString()); input.put("boxSpecId", UUID.randomUUID().toString());
+        postJson("/inventory-receipts", input, 404);
+        assertThat(jdbc.queryForObject("select on_hand_qty from box_spec where id=?", Integer.class, box)).isEqualTo(100);
+    }
+
+    @Test void barcodeUniquenessIsCheckedAndZeroQuantityCannotCreateAnOrder() throws Exception {
+        patchJson("/products/" + product, Map.of("expectedVersion", 0, "barcode", "000123"), 200);
+        UUID another = UUID.randomUUID();
+        jdbc.update("insert into product(id,warehouse_id,code,is_active,version) values (?,?,'SKU-2',true,0)", another, warehouse);
+        patchJson("/products/" + another, Map.of("expectedVersion", 0, "barcode", "000123"), 400);
+        UUID proposalId = proposal();
+        jdbc.update("update procurement_proposal_item set proposed_qty=0 where proposal_id=?", proposalId); em.clear();
+        postJson("/purchase-orders/from-proposal", Map.of("proposalId", proposalId.toString()), 409);
+    }
+}

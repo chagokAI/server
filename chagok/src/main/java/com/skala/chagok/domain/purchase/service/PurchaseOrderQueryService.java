@@ -23,7 +23,8 @@ public class PurchaseOrderQueryService {
     private final PurchaseHistorySummaryRepository summaries;
     private final WarehouseQueryGuard warehouses;
     private final ChagokProperties properties;
-    private static final Map<String, String> SORTS = Map.of("createdAt", "createdAt", "deliveryDate", "requestedDeliveryDate");
+    private static final Map<String, String> SORTS = Map.of("createdAt", "createdAt", "deliveryDate", "requestedDeliveryDate",
+            "totalAmountKrw", "totalAmountKrw");
 
     public PurchaseOrderPageResponse list(UUID warehouseId, LocalDate from, LocalDate to, String keyword,
                                            PurchaseOrderStatus status, int page, int size, String sort) {
@@ -42,7 +43,23 @@ public class PurchaseOrderQueryService {
                     cb.like(cb.lower(root.join("supplier", JoinType.LEFT).get("name")), pattern, LikePatterns.ESCAPE)));
         }
         if (status != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("status"), status));
-        var result = orders.findAll(specification, PageRequests.of(page, size, sort, SORTS, "createdAt,desc"));
+        var pageable = PageRequests.of(page, size, sort, SORTS, "createdAt,desc");
+        var amountSort = pageable.getSort().getOrderFor("totalAmountKrw");
+        if (amountSort != null) {
+            specification = specification.and((root, query, cb) -> {
+                if (query.getResultType() != Long.class && query.getResultType() != long.class) {
+                    var amount = query.subquery(Long.class);
+                    var line = amount.from(PurchaseOrderItem.class);
+                    var price = cb.prod(line.get("qty").as(Long.class), line.get("unitPriceKrw").as(Long.class));
+                    amount.select(cb.<Long>selectCase().when(cb.equal(cb.count(line), cb.count(price)), cb.sum(price))
+                            .otherwise(cb.nullLiteral(Long.class))).where(cb.equal(line.get("purchaseOrder"), root));
+                    query.orderBy(amountSort.isAscending() ? cb.asc(amount) : cb.desc(amount), cb.asc(root.get("id")));
+                }
+                return cb.conjunction();
+            });
+            pageable = org.springframework.data.domain.PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
+        }
+        var result = orders.findAll(specification, pageable);
         var ids = result.getContent().stream().map(PurchaseOrder::getId).toList();
         Map<UUID, List<PurchaseOrderItem>> grouped = ids.isEmpty() ? Map.of() : items.findByPurchaseOrderIdIn(ids).stream()
                 .collect(Collectors.groupingBy(item -> item.getId().getPurchaseOrderId()));
@@ -53,9 +70,11 @@ public class PurchaseOrderQueryService {
         totals.forEach(value -> counts.put(value.status(), value.count()));
         long samples = totals.stream().mapToLong(PurchaseHistorySummaryRepository.StatusTotals::leadSamples).sum();
         BigDecimal leadDays = totals.stream().map(PurchaseHistorySummaryRepository.StatusTotals::leadDays).reduce(BigDecimal.ZERO, BigDecimal::add);
+        long incomplete = totals.stream().mapToLong(PurchaseHistorySummaryRepository.StatusTotals::incompleteAmounts).sum();
         var summary = new PurchaseOrderPageResponse.Summary(counts.get("ALL"),
-                totals.stream().map(PurchaseHistorySummaryRepository.StatusTotals::amountKrw).reduce(BigDecimal.ZERO, BigDecimal::add),
-                counts.get("PENDING"), samples == 0 ? null : leadDays.divide(BigDecimal.valueOf(samples), 1, RoundingMode.HALF_UP), samples);
+                incomplete > 0 ? null : totals.stream().map(PurchaseHistorySummaryRepository.StatusTotals::amountKrw).reduce(BigDecimal.ZERO, BigDecimal::add),
+                counts.get("PENDING"), samples == 0 ? null : leadDays.divide(BigDecimal.valueOf(samples), 1, RoundingMode.HALF_UP), samples,
+                counts.get("APPROVED") + counts.get("IN_TRANSIT"), incomplete);
         return new PurchaseOrderPageResponse(result.stream().map(order -> PurchaseOrderPageResponse.Row.from(order,
                 grouped.getOrDefault(order.getId(), List.of()))).toList(), result.getNumber(), result.getSize(),
                 result.getTotalElements(), result.getTotalPages(), counts, summary, from, to);

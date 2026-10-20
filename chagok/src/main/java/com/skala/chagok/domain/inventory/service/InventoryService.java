@@ -60,6 +60,7 @@ public class InventoryService {
     private final ProcurementProposalRepository procurementProposalRepository;
     private final ProcurementProposalItemRepository procurementProposalItemRepository;
     private final ChagokProperties properties;
+    private final com.skala.chagok.domain.notification.service.DomainNotificationService notices;
 
     private record Row(BoxSpec spec, InventoryStatus status) {
     }
@@ -82,29 +83,73 @@ public class InventoryService {
                 .toList();
 
         ZoneId zone = properties.timezone();
+        UsageSnapshot usage = usage(warehouseId);
         PageResponse<InventoryItemResponse> body = PageResponse.of(PageRequests.slice(filtered, pageable),
-                row -> InventoryItemResponse.from(row.spec(), row.status(), zone), countByStatus(matched));
-        return InventoryPageResponse.of(body, summarize(warehouseId, all));
+                row -> InventoryItemResponse.from(row.spec(), row.status(), zone, usage.daily(row.spec().getId()), usage.dataAsOf()), countByStatus(matched));
+        return InventoryPageResponse.of(body, summarize(all, usage));
     }
 
     @Transactional
     public InventoryItemResponse updatePolicy(UUID warehouseId, UUID inventoryId, InventoryPolicyUpdateRequest request) {
-        requireWarehouse(warehouseId);
+        warehouseRepository.lockById(warehouseId).orElseThrow(() -> BusinessException.notFound("센터"));
         BoxSpec boxSpec = boxSpecRepository.findByIdAndWarehouseId(inventoryId, warehouseId)
                 .orElseThrow(() -> BusinessException.notFound("박스 재고"));
         if (!Objects.equals(boxSpec.getVersion(), request.expectedVersion())) {
             throw new BusinessException(ErrorCode.VERSION_CONFLICT);
         }
 
-        boxSpec.updateSafetyQty(request.safetyQty());
+        if (request.safetyQty() == null && request.safetyDays() == null && request.alertEnabled() == null && request.targetQty() == null)
+            throw BusinessException.invalidField("safetyQty", "변경할 정책을 입력하세요.");
+        UsageSnapshot usage = usage(warehouseId);
+        BigDecimal daily = usage.daily(inventoryId);
+        Integer qty = request.safetyQty();
+        if (request.safetyDays() != null && qty == null) {
+            if (daily == null) throw new BusinessException(ErrorCode.INVALID_STATE, "일수 기준 계산을 위한 이번 달 참고 수량이 없습니다. safetyQty를 직접 입력하세요.");
+            try {
+                qty = BigDecimal.valueOf(usage.monthly().get(inventoryId)).multiply(BigDecimal.valueOf(request.safetyDays()))
+                        .divide(BigDecimal.valueOf(usage.month().lengthOfMonth()), 0, RoundingMode.CEILING).intValueExact();
+            } catch (ArithmeticException e) { throw BusinessException.invalidField("safetyDays", "안전 재고 수량 범위를 초과했습니다."); }
+        }
+        boolean wasShort = com.skala.chagok.domain.notification.service.DomainNotificationService.shortage(boxSpec);
+        boolean wasEnabled = !Boolean.FALSE.equals(boxSpec.getAlertEnabled());
+        boxSpec.updatePolicy(qty, request.safetyDays(), request.alertEnabled(), request.targetQty());
+        notices.inventory(boxSpec, wasShort, wasEnabled);
         // @Version은 flush 시점에 올라가므로, 응답에 새 버전을 담으려면 먼저 flush한다.
         boxSpecRepository.flush();
         InventoryStatus status = InventoryStatus.of(boxSpec, properties.inventory().cautionBufferDays());
-        return InventoryItemResponse.from(boxSpec, status, properties.timezone());
+        return InventoryItemResponse.from(boxSpec, status, properties.timezone(), daily, usage.dataAsOf());
     }
 
-    private InventorySummary summarize(UUID warehouseId, List<Row> all) {
-        long totalOnHand = all.stream()
+    private record UsageSnapshot(YearMonth month, Map<UUID, Integer> monthly, boolean complete,
+                                 InventorySummary.ForecastSource source) {
+        BigDecimal daily(UUID id) {
+            Integer qty = monthly.get(id);
+            return qty == null ? null : BigDecimal.valueOf(qty).divide(BigDecimal.valueOf(month.lengthOfMonth()), 4, RoundingMode.HALF_UP);
+        }
+        Instant dataAsOf() { return source == null ? null : source.dataAsOf(); }
+        Integer weekly() {
+            if (!complete) return null;
+            long qty = monthly.values().stream().mapToLong(Integer::longValue).sum();
+            return BigDecimal.valueOf(qty).multiply(BigDecimal.valueOf(7))
+                    .divide(BigDecimal.valueOf(month.lengthOfMonth()), 0, RoundingMode.HALF_UP).intValueExact();
+        }
+    }
+
+    private UsageSnapshot usage(UUID warehouseId) {
+        YearMonth month = YearMonth.now(properties.timezone());
+        return procurementProposalRepository.findFirstByWarehouseIdAndTargetMonthOrderByGeneratedAtDescIdDesc(warehouseId, month.toString())
+                .map(proposal -> {
+                    var lines = procurementProposalItemRepository.findByProposalId(proposal.getId());
+                    var monthly = new java.util.HashMap<UUID, Integer>();
+                    lines.stream().filter(item -> item.getForecastUsageQty() != null)
+                            .forEach(item -> monthly.put(item.getBoxSpec().getId(), item.getForecastUsageQty()));
+                    return new UsageSnapshot(month, monthly, !lines.isEmpty() && monthly.size() == lines.size(),
+                            new InventorySummary.ForecastSource(proposal.getId(), proposal.getTargetMonth(), proposal.getDataAsOf(), proposal.getGeneratedAt()));
+                }).orElse(new UsageSnapshot(month, Map.of(), false, null));
+    }
+
+    private InventorySummary summarize(List<Row> all, UsageSnapshot usage) {
+        Long totalOnHand = all.stream().anyMatch(row -> row.spec().getOnHandQty() == null) ? null : all.stream()
                 .mapToLong(row -> row.spec().getOnHandQty() == null ? 0 : row.spec().getOnHandQty())
                 .sum();
         List<String> shortageCodes = all.stream()
@@ -125,35 +170,19 @@ public class InventoryService {
                 .max(Comparator.naturalOrder())
                 .orElse(null);
 
-        ForecastUsage usage = weeklyForecastUsage(warehouseId);
         return new InventorySummary(
                 totalOnHand,
                 all.size(),
                 shortageCodes.size(),
                 shortageCodes,
-                usage.weeklyQty(),
+                usage.weekly(),
                 null,
                 avgDays.isPresent() ? BigDecimal.valueOf(avgDays.getAsDouble()).setScale(1, RoundingMode.HALF_UP) : null,
                 properties.inventory().targetDaysToStockout(),
                 lastUpdated == null ? null : lastUpdated.atZone(properties.timezone()).toOffsetDateTime(),
-                usage.source()
+                usage.source(),
+                (int) all.stream().filter(row -> row.status() == InventoryStatus.UNKNOWN).count()
         );
-    }
-
-    /** 이번 달 제안서의 예상 소모량(월) × 7 ÷ 이번 달 일수. 제안서가 없으면 null. */
-    private record ForecastUsage(Integer weeklyQty, InventorySummary.ForecastSource source) {}
-
-    private ForecastUsage weeklyForecastUsage(UUID warehouseId) {
-        YearMonth thisMonth = YearMonth.now(properties.timezone());
-        return procurementProposalRepository
-                .findFirstByWarehouseIdAndTargetMonthOrderByGeneratedAtDescIdDesc(warehouseId, thisMonth.toString())
-                .map(proposal -> {
-                    Long monthly = procurementProposalItemRepository.sumForecastUsageQty(proposal.getId());
-                    Integer weekly = monthly == null ? null : BigDecimal.valueOf(monthly).multiply(BigDecimal.valueOf(7))
-                            .divide(BigDecimal.valueOf(thisMonth.lengthOfMonth()), 0, RoundingMode.HALF_UP).intValueExact();
-                    return new ForecastUsage(weekly, new InventorySummary.ForecastSource(proposal.getId(),
-                            proposal.getTargetMonth(), proposal.getDataAsOf(), proposal.getGeneratedAt()));
-                }).orElse(new ForecastUsage(null, null));
     }
 
     private static Map<String, Long> countByStatus(List<Row> rows) {

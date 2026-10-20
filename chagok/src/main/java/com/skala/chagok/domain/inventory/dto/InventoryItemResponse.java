@@ -28,7 +28,12 @@ public record InventoryItemResponse(
         SupplierSummary supplier,
         OffsetDateTime stockUpdatedAt,
         Integer version,
-        OffsetDateTime forecastUpdatedAt
+        OffsetDateTime forecastUpdatedAt,
+        Integer safetyDays,
+        Boolean alertEnabled,
+        BigDecimal dailyUsage,
+        String usageSource,
+        java.time.Instant usageDataAsOf
 ) {
 
     /** 안전 재고 수정 모달의 "공급사 리드타임 7일 · 그린팩코리아" 표시용 */
@@ -41,6 +46,10 @@ public record InventoryItemResponse(
     }
 
     public static InventoryItemResponse from(BoxSpec boxSpec, InventoryStatus status, ZoneId zone) {
+        return from(boxSpec, status, zone, null, null);
+    }
+
+    public static InventoryItemResponse from(BoxSpec boxSpec, InventoryStatus status, ZoneId zone, BigDecimal dailyForecast, java.time.Instant usageDataAsOf) {
         return new InventoryItemResponse(
                 boxSpec.getId(),
                 boxSpec.getCode(),
@@ -57,13 +66,18 @@ public record InventoryItemResponse(
                 SupplierSummary.from(boxSpec.getSupplier()),
                 boxSpec.getStockUpdatedAt() == null ? null : boxSpec.getStockUpdatedAt().atZone(zone).toOffsetDateTime(),
                 boxSpec.getVersion(),
-                boxSpec.getForecastUpdatedAt() == null ? null : boxSpec.getForecastUpdatedAt().atZone(zone).toOffsetDateTime()
+                boxSpec.getForecastUpdatedAt() == null ? null : boxSpec.getForecastUpdatedAt().atZone(zone).toOffsetDateTime(),
+                boxSpec.getSafetyDays(),
+                boxSpec.getAlertEnabled(),
+                dailyForecast,
+                dailyForecast == null ? "NOT_AVAILABLE" : "REFERENCE_FORECAST",
+                usageDataAsOf
         );
     }
 
     /** 재고 수준 = 현재 재고 ÷ 목표 재고 × 100, 정수 반올림, 최대 100. 목표 재고가 없으면 null. */
     static Integer stockLevelPct(Integer onHandQty, Integer targetQty) {
-        if (targetQty == null || targetQty <= 0) {
+        if (onHandQty == null || targetQty == null || targetQty <= 0) {
             return null;
         }
         int onHand = onHandQty == null ? 0 : onHandQty;

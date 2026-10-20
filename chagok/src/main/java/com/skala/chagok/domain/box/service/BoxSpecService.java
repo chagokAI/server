@@ -49,6 +49,8 @@ public class BoxSpecService {
     private final PurchaseOrderItemRepository purchaseOrderItemRepository;
     private final ProcurementProposalItemRepository procurementProposalItemRepository;
     private final ItemEventRepository itemEventRepository;
+    private final com.skala.chagok.domain.inventory.repository.InventoryMovementRepository movements;
+    private final com.skala.chagok.domain.product.service.ProductMatchingService matching;
 
     public BoxSpecPageResponse getBoxSpecs(UUID warehouseId, String keyword, Boolean active,
                                                      Boolean custom, int page, int size, String sort) {
@@ -89,7 +91,7 @@ public class BoxSpecService {
 
     @Transactional
     public BoxSpecResponse createBoxSpec(UUID warehouseId, BoxSpecCreateRequest request) {
-        Warehouse warehouse = warehouseRepository.findById(warehouseId)
+        Warehouse warehouse = warehouseRepository.lockById(warehouseId)
                 .orElseThrow(() -> BusinessException.notFound("센터"));
         // ERD에 유니크 제약이 없어 센터 내 박스 코드 중복을 애플리케이션에서 막는다.
         if (boxSpecRepository.existsByWarehouseIdAndCode(warehouseId, request.code())) {
@@ -108,7 +110,12 @@ public class BoxSpecService {
                 .supplier(findSupplier(warehouseId, request.supplierId()))
                 .unitPriceKrw(request.unitPriceKrw())
                 .isCustom(request.isCustom())
-                .isActive(true)
+                .isActive(request.isActive() == null || request.isActive())
+                .onHandQty(request.initialOnHandQty() == null ? 0 : request.initialOnHandQty())
+                .safetyQty(request.safetyQty() == null ? 0 : request.safetyQty())
+                .targetQty(request.targetQty())
+                .alertEnabled(true)
+                .stockUpdatedAt(java.time.Instant.now())
                 .description(request.description())
                 .build();
         return BoxSpecResponse.from(boxSpecRepository.saveAndFlush(boxSpec));
@@ -116,6 +123,7 @@ public class BoxSpecService {
 
     @Transactional
     public BoxSpecResponse updateBoxSpec(UUID warehouseId, UUID boxSpecId, BoxSpecUpdateRequest request) {
+        warehouseRepository.lockById(warehouseId).orElseThrow(() -> BusinessException.notFound("센터"));
         BoxSpec boxSpec = findBoxSpec(warehouseId, boxSpecId);
         checkVersion(boxSpec.getVersion(), request.expectedVersion());
         if (request.code() != null
@@ -136,6 +144,11 @@ public class BoxSpecService {
                 request.isCustom(),
                 request.isActive(),
                 request.description());
+        if (request.innerWidthMm() != null || request.innerDepthMm() != null || request.innerHeightMm() != null
+                || request.isActive() != null) {
+            productRepository.findByMatchedBoxSpecIdAndIsActiveTrue(boxSpecId).forEach(matching::refreshCurrent);
+            productRepository.flush();
+        }
         boxSpecRepository.flush();
         return BoxSpecResponse.from(boxSpec, linkedProductCounts(warehouseId).getOrDefault(boxSpecId, 0L));
     }
@@ -152,9 +165,10 @@ public class BoxSpecService {
         boolean referenced = productRepository.existsByMatchedBoxSpecId(boxSpecId)
                 || purchaseOrderItemRepository.existsByBoxSpecId(boxSpecId)
                 || procurementProposalItemRepository.existsByBoxSpecId(boxSpecId)
-                || itemEventRepository.existsByBoxSpecId(boxSpecId);
+                || itemEventRepository.existsByBoxSpecId(boxSpecId)
+                || movements.existsByBoxSpecId(boxSpecId);
         boolean hasStock = boxSpec.getOnHandQty() != null && boxSpec.getOnHandQty() > 0;
-        if (referenced || hasStock) {
+        if (Boolean.TRUE.equals(boxSpec.getIsActive()) || referenced || hasStock) {
             throw new BusinessException(ErrorCode.REFERENCED_SPEC);
         }
         boxSpecRepository.delete(boxSpec);

@@ -51,4 +51,6 @@ public class PurchaseOrderItem {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "box_snapshot", columnDefinition = "jsonb")
     private BoxSnapshot boxSnapshot;
+
+    public void changeQuantity(Integer qty) { this.qty = qty; }
 }

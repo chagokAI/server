@@ -45,13 +45,13 @@ class EntityMappingTests {
                     Warehouse.class, AppUser.class, Supplier.class, BoxSpec.class,
                     Product.class, ProcurementProposal.class, ProcurementProposalItem.class,
                     PurchaseOrder.class, PurchaseOrderItem.class, ItemEvent.class, Notification.class,
-                    Category.class, AnalysisJob.class, CostForecast.class
+                    Category.class, AnalysisJob.class, CostForecast.class, com.skala.chagok.domain.inventory.entity.InventoryMovement.class
             }) {
                 sources.addAnnotatedClass(entity);
             }
 
             try (SessionFactory sessionFactory = sources.buildMetadata().buildSessionFactory()) {
-                assertThat(sessionFactory.getMetamodel().getEntities()).hasSize(14);
+                assertThat(sessionFactory.getMetamodel().getEntities()).hasSize(15);
                 assertThat(schema.toString())
                         .contains("embedding vector(384)", "summary jsonb", "placement jsonb")
                         .contains("primary key (box_spec_id, proposal_id)")

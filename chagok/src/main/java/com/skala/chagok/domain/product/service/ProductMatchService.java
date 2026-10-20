@@ -48,6 +48,7 @@ public class ProductMatchService {
     private final BoxSpecRepository boxSpecRepository;
     private final CategoryRepository categoryRepository;
     private final WarehouseRepository warehouseRepository;
+    private final ProductMatchingService matching;
 
     public PageResponse<ProductMatchResponse> getProductMatches(UUID warehouseId, SearchBy searchBy, String keyword,
                                                                 UUID categoryId, MatchStatus status,
@@ -67,22 +68,29 @@ public class ProductMatchService {
     }
 
     public ProductDetailResponse getProduct(UUID warehouseId, UUID productId) {
-        return ProductDetailResponse.from(findProduct(warehouseId, productId));
+        Product product = findProduct(warehouseId, productId);
+        return ProductDetailResponse.from(product, matching.candidates(product));
     }
 
     /** 상품 수정 모달 저장. 상품 정보 수정과 박스 직접 지정을 한 트랜잭션에서 처리한다. */
     @Transactional
     public ProductDetailResponse updateProduct(UUID warehouseId, UUID productId, ProductUpdateRequest request) {
+        warehouseRepository.lockById(warehouseId).orElseThrow(() -> BusinessException.notFound("센터"));
         Product product = findProduct(warehouseId, productId);
         checkVersion(product.getVersion(), request.expectedVersion());
 
         Category category = request.categoryId() == null ? null
                 : categoryRepository.findByIdAndWarehouseId(request.categoryId(), warehouseId)
                         .orElseThrow(() -> BusinessException.invalidField("categoryId", "존재하지 않는 카테고리입니다."));
+        if (request.barcode() != null && productRepository.existsByWarehouseIdAndBarcodeAndIdNot(warehouseId, request.barcode(), productId)) {
+            throw BusinessException.invalidField("barcode", "이미 등록된 바코드입니다.");
+        }
+        product.updateIdentity(request.barcode(), request.weightG());
+        boolean dimensionsChanged = request.widthMm() != null || request.depthMm() != null || request.heightMm() != null;
         product.update(request.name(), category,
                 request.widthMm(), request.depthMm(), request.heightMm(), request.imageUrl());
 
-        // 같은 박스를 다시 보내면 지정 변경이 아니므로 매칭 상태를 그대로 둔다.
+        // 박스 변경과 치수 변경을 구분한다. 같은 박스여도 치수가 바뀌면 다시 검증한다.
         BoxSpec current = product.getMatchedBoxSpec();
         boolean boxChanged = request.boxSpecId() != null
                 && (current == null || !current.getId().equals(request.boxSpecId()));
@@ -92,15 +100,18 @@ public class ProductMatchService {
             }
             // 사이즈를 함께 고친 경우에도 위에서 먼저 반영했으므로 새 사이즈 기준으로 계산된다.
             applyOverride(product, warehouseId, request.boxSpecId(), request.matchOverrideReason());
+        } else if (dimensionsChanged) {
+            matching.refreshCurrent(product);
         }
 
         // @Version은 flush 시점에 올라가므로, 응답에 새 버전을 담으려면 먼저 flush한다.
         productRepository.flush();
-        return ProductDetailResponse.from(product);
+        return ProductDetailResponse.from(product, matching.candidates(product));
     }
 
     @Transactional
     public ProductMatchResponse overrideMatch(UUID warehouseId, UUID productId, MatchOverrideRequest request) {
+        warehouseRepository.lockById(warehouseId).orElseThrow(() -> BusinessException.notFound("센터"));
         Product product = findProduct(warehouseId, productId);
         checkVersion(product.getVersion(), request.expectedVersion());
 

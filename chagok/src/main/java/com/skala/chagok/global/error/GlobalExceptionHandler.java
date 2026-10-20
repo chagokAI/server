@@ -98,6 +98,16 @@ public class GlobalExceptionHandler {
         return build(ErrorCode.VERSION_CONFLICT, null, List.of(), request);
     }
 
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleIntegrity(org.springframework.dao.DataIntegrityViolationException e, HttpServletRequest request) {
+        return build(ErrorCode.INVALID_STATE, "중복되거나 사용 중인 데이터입니다. 최신 내용을 확인하세요.", List.of(), request);
+    }
+
+    @ExceptionHandler(ArithmeticException.class)
+    public ResponseEntity<ErrorResponse> handleArithmetic(ArithmeticException e, HttpServletRequest request) {
+        return build(ErrorCode.VALIDATION_ERROR, "계산 수량 또는 금액 범위를 초과했습니다.", List.of(), request);
+    }
+
     @ExceptionHandler(DataAccessResourceFailureException.class)
     public ResponseEntity<ErrorResponse> handleUnavailable(DataAccessResourceFailureException e,
                                                            HttpServletRequest request) {

@@ -196,7 +196,8 @@ class ReadDatabaseTests {
         var service = new BoxSpecService(repositories.getRepository(BoxSpecRepository.class), repositories.getRepository(WarehouseRepository.class),
                 repositories.getRepository(SupplierRepository.class), repositories.getRepository(ProductRepository.class),
                 repositories.getRepository(PurchaseOrderItemRepository.class), repositories.getRepository(ProcurementProposalItemRepository.class),
-                repositories.getRepository(ItemEventRepository.class));
+                repositories.getRepository(ItemEventRepository.class), mock(com.skala.chagok.domain.inventory.repository.InventoryMovementRepository.class),
+                mock(com.skala.chagok.domain.product.service.ProductMatchingService.class));
         var result = service.getBoxSpecs(warehouseId, null, true, null, 0, 20, null);
         assertThat(result.items()).hasSize(1);
         assertThat(result.items().getFirst().linkedProductCount()).isEqualTo(2);
