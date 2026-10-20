@@ -96,6 +96,11 @@ public class BoxSpec {
     @Column(name = "version")
     private Integer version;
 
+    /** 재고 관리 화면의 안전 재고 수정(INV-API-02). */
+    public void updateSafetyQty(Integer safetyQty) {
+        this.safetyQty = safetyQty;
+    }
+
     public void update(String code, String name, Character sizeClass,
                        Integer innerWidthMm, Integer innerDepthMm, Integer innerHeightMm,
                        String material, Supplier supplier, Integer unitPriceKrw,

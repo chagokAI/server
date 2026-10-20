@@ -2,8 +2,11 @@ package com.skala.chagok.global.web;
 
 import com.skala.chagok.global.error.BusinessException;
 
+import java.util.List;
 import java.util.Map;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -44,5 +47,12 @@ public final class PageRequests {
             resolved = resolved.and(Sort.by(Sort.Direction.ASC, "id"));
         }
         return PageRequest.of(page, size, resolved);
+    }
+
+    /** 이미 정렬된 전체 목록에서 pageable 범위만 잘라 Page로 만든다(메모리 페이지 처리용). */
+    public static <T> Page<T> slice(List<T> sorted, Pageable pageable) {
+        int from = (int) Math.min(pageable.getOffset(), sorted.size());
+        int to = Math.min(from + pageable.getPageSize(), sorted.size());
+        return new PageImpl<>(sorted.subList(from, to), pageable, sorted.size());
     }
 }

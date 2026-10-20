@@ -36,3 +36,6 @@ spring:
 chagok:
   timezone: Asia/Seoul
   refresh-after-seconds: 300
+  inventory:
+    caution-buffer-days: 3
+    target-days-to-stockout: 14

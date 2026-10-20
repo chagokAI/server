@@ -20,6 +20,7 @@ import com.skala.chagok.global.response.PageResponse;
 import com.skala.chagok.global.web.PageRequests;
 import com.skala.chagok.global.web.Specs;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -57,8 +58,11 @@ public class BoxSpecService {
                 BoxSpecSpecs.keyword(keyword),
                 BoxSpecSpecs.active(active),
                 BoxSpecSpecs.custom(custom));
-        return PageResponse.of(boxSpecRepository.findAll(spec, pageable),
-                BoxSpecResponse::from);
+        // 센터당 규격은 수십 개 수준이라 전체를 읽어 메모리에서 정렬·페이지 처리한다.
+        List<BoxSpec> sorted = boxSpecRepository.findAll(spec).stream()
+                .sorted(BoxSpecOrdering.of(pageable.getSort()))
+                .toList();
+        return PageResponse.of(PageRequests.slice(sorted, pageable), BoxSpecResponse::from);
     }
 
     public BoxSpecResponse getBoxSpec(UUID warehouseId, UUID boxSpecId) {
