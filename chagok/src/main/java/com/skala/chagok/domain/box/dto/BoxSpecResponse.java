@@ -22,7 +22,8 @@ public record BoxSpecResponse(
         Boolean isCustom,
         Boolean isActive,
         String description,
-        Integer version
+        Integer version,
+        long linkedProductCount
 ) {
 
     public record SupplierSummary(UUID id, String name) {
@@ -33,6 +34,10 @@ public record BoxSpecResponse(
     }
 
     public static BoxSpecResponse from(BoxSpec boxSpec) {
+        return from(boxSpec, 0);
+    }
+
+    public static BoxSpecResponse from(BoxSpec boxSpec, long linkedProductCount) {
         return new BoxSpecResponse(
                 boxSpec.getId(),
                 boxSpec.getCode(),
@@ -47,7 +52,8 @@ public record BoxSpecResponse(
                 boxSpec.getIsCustom(),
                 boxSpec.getIsActive(),
                 boxSpec.getDescription(),
-                boxSpec.getVersion()
+                boxSpec.getVersion(),
+                linkedProductCount
         );
     }
 }

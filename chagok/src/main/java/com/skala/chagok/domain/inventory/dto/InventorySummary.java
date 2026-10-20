@@ -3,6 +3,8 @@ package com.skala.chagok.domain.inventory.dto;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.time.Instant;
+import java.util.UUID;
 
 /**
  * 상단 요약 카드. 검색어·상태 필터와 관계없이 센터의 활성 규격 전체 기준이다.
@@ -21,6 +23,8 @@ public record InventorySummary(
         BigDecimal weeklyForecastChangePct,
         BigDecimal avgDaysToStockout,
         int targetDaysToStockout,
-        OffsetDateTime lastUpdatedAt
+        OffsetDateTime lastUpdatedAt,
+        ForecastSource forecastSource
 ) {
+    public record ForecastSource(UUID proposalId, String targetMonth, Instant dataAsOf, Instant generatedAt) {}
 }

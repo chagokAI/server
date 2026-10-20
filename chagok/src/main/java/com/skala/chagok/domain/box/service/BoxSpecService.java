@@ -2,6 +2,7 @@ package com.skala.chagok.domain.box.service;
 
 import com.skala.chagok.domain.box.dto.BoxSpecCreateRequest;
 import com.skala.chagok.domain.box.dto.BoxSpecResponse;
+import com.skala.chagok.domain.box.dto.BoxSpecPageResponse;
 import com.skala.chagok.domain.box.dto.BoxSpecUpdateRequest;
 import com.skala.chagok.domain.box.entity.BoxSpec;
 import com.skala.chagok.domain.box.repository.BoxSpecRepository;
@@ -24,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import lombok.RequiredArgsConstructor;
 
@@ -48,7 +50,7 @@ public class BoxSpecService {
     private final ProcurementProposalItemRepository procurementProposalItemRepository;
     private final ItemEventRepository itemEventRepository;
 
-    public PageResponse<BoxSpecResponse> getBoxSpecs(UUID warehouseId, String keyword, Boolean active,
+    public BoxSpecPageResponse getBoxSpecs(UUID warehouseId, String keyword, Boolean active,
                                                      Boolean custom, int page, int size, String sort) {
         requireWarehouse(warehouseId);
         Pageable pageable = PageRequests.of(page, size, sort, SORTS, DEFAULT_SORT);
@@ -62,11 +64,27 @@ public class BoxSpecService {
         List<BoxSpec> sorted = boxSpecRepository.findAll(spec).stream()
                 .sorted(BoxSpecOrdering.of(pageable.getSort()))
                 .toList();
-        return PageResponse.of(PageRequests.slice(sorted, pageable), BoxSpecResponse::from);
+        Map<UUID, Long> linked = linkedProductCounts(warehouseId);
+        Specification<BoxSpec> common = Specs.allOf(BoxSpecSpecs.in(warehouseId), BoxSpecSpecs.keyword(keyword));
+        List<BoxSpec> all = boxSpecRepository.findAll(common);
+        long activeCount = all.stream().filter(s -> Boolean.TRUE.equals(s.getIsActive())).count();
+        long customCount = all.stream().filter(s -> Boolean.TRUE.equals(s.getIsCustom())).count();
+        Map<String, Long> counts = Map.of("ALL", (long) all.size(), "ACTIVE", activeCount,
+                "INACTIVE", all.size() - activeCount, "CUSTOM", customCount);
+        PageResponse<BoxSpecResponse> body = PageResponse.of(PageRequests.slice(sorted, pageable),
+                box -> BoxSpecResponse.from(box, linked.getOrDefault(box.getId(), 0L)), counts);
+        return BoxSpecPageResponse.of(body,
+                new BoxSpecPageResponse.Summary(all.size(), all.size() - customCount, customCount));
     }
 
     public BoxSpecResponse getBoxSpec(UUID warehouseId, UUID boxSpecId) {
-        return BoxSpecResponse.from(findBoxSpec(warehouseId, boxSpecId));
+        return BoxSpecResponse.from(findBoxSpec(warehouseId, boxSpecId),
+                linkedProductCounts(warehouseId).getOrDefault(boxSpecId, 0L));
+    }
+
+    private Map<UUID, Long> linkedProductCounts(UUID warehouseId) {
+        return productRepository.countActiveProductsByBox(warehouseId).stream().collect(Collectors.toMap(
+                ProductRepository.BoxProductCount::getBoxSpecId, ProductRepository.BoxProductCount::getProductCount));
     }
 
     @Transactional
@@ -119,7 +137,7 @@ public class BoxSpecService {
                 request.isActive(),
                 request.description());
         boxSpecRepository.flush();
-        return BoxSpecResponse.from(boxSpec);
+        return BoxSpecResponse.from(boxSpec, linkedProductCounts(warehouseId).getOrDefault(boxSpecId, 0L));
     }
 
     /**

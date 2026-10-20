@@ -2,6 +2,7 @@ package com.skala.chagok.domain.box.controller;
 
 import com.skala.chagok.domain.box.dto.BoxSpecCreateRequest;
 import com.skala.chagok.domain.box.dto.BoxSpecResponse;
+import com.skala.chagok.domain.box.dto.BoxSpecPageResponse;
 import com.skala.chagok.domain.box.dto.BoxSpecUpdateRequest;
 import com.skala.chagok.domain.box.service.BoxSpecService;
 import com.skala.chagok.global.response.ApiResponse;
@@ -38,7 +39,7 @@ public class BoxSpecController {
 
     /** SPEC-API-01 */
     @GetMapping
-    public ApiResponse<PageResponse<BoxSpecResponse>> getBoxSpecs(
+    public ApiResponse<BoxSpecPageResponse> getBoxSpecs(
             @PathVariable UUID warehouseId,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Boolean active,

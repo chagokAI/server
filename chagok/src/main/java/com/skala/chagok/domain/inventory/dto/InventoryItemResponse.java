@@ -27,7 +27,8 @@ public record InventoryItemResponse(
         InventoryStatus status,
         SupplierSummary supplier,
         OffsetDateTime stockUpdatedAt,
-        Integer version
+        Integer version,
+        OffsetDateTime forecastUpdatedAt
 ) {
 
     /** 안전 재고 수정 모달의 "공급사 리드타임 7일 · 그린팩코리아" 표시용 */
@@ -55,7 +56,8 @@ public record InventoryItemResponse(
                 status,
                 SupplierSummary.from(boxSpec.getSupplier()),
                 boxSpec.getStockUpdatedAt() == null ? null : boxSpec.getStockUpdatedAt().atZone(zone).toOffsetDateTime(),
-                boxSpec.getVersion()
+                boxSpec.getVersion(),
+                boxSpec.getForecastUpdatedAt() == null ? null : boxSpec.getForecastUpdatedAt().atZone(zone).toOffsetDateTime()
         );
     }
 

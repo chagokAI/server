@@ -125,29 +125,35 @@ public class InventoryService {
                 .max(Comparator.naturalOrder())
                 .orElse(null);
 
+        ForecastUsage usage = weeklyForecastUsage(warehouseId);
         return new InventorySummary(
                 totalOnHand,
                 all.size(),
                 shortageCodes.size(),
                 shortageCodes,
-                weeklyForecastUsage(warehouseId),
+                usage.weeklyQty(),
                 null,
                 avgDays.isPresent() ? BigDecimal.valueOf(avgDays.getAsDouble()).setScale(1, RoundingMode.HALF_UP) : null,
                 properties.inventory().targetDaysToStockout(),
-                lastUpdated == null ? null : lastUpdated.atZone(properties.timezone()).toOffsetDateTime()
+                lastUpdated == null ? null : lastUpdated.atZone(properties.timezone()).toOffsetDateTime(),
+                usage.source()
         );
     }
 
     /** 이번 달 제안서의 예상 소모량(월) × 7 ÷ 이번 달 일수. 제안서가 없으면 null. */
-    private Integer weeklyForecastUsage(UUID warehouseId) {
+    private record ForecastUsage(Integer weeklyQty, InventorySummary.ForecastSource source) {}
+
+    private ForecastUsage weeklyForecastUsage(UUID warehouseId) {
         YearMonth thisMonth = YearMonth.now(properties.timezone());
         return procurementProposalRepository
-                .findFirstByWarehouseIdAndTargetMonthOrderByGeneratedAtDesc(warehouseId, thisMonth.toString())
-                .map(proposal -> procurementProposalItemRepository.sumForecastUsageQty(proposal.getId()))
-                .map(monthly -> BigDecimal.valueOf(monthly).multiply(BigDecimal.valueOf(7))
-                        .divide(BigDecimal.valueOf(thisMonth.lengthOfMonth()), 0, RoundingMode.HALF_UP)
-                        .intValue())
-                .orElse(null);
+                .findFirstByWarehouseIdAndTargetMonthOrderByGeneratedAtDescIdDesc(warehouseId, thisMonth.toString())
+                .map(proposal -> {
+                    Long monthly = procurementProposalItemRepository.sumForecastUsageQty(proposal.getId());
+                    Integer weekly = monthly == null ? null : BigDecimal.valueOf(monthly).multiply(BigDecimal.valueOf(7))
+                            .divide(BigDecimal.valueOf(thisMonth.lengthOfMonth()), 0, RoundingMode.HALF_UP).intValueExact();
+                    return new ForecastUsage(weekly, new InventorySummary.ForecastSource(proposal.getId(),
+                            proposal.getTargetMonth(), proposal.getDataAsOf(), proposal.getGeneratedAt()));
+                }).orElse(new ForecastUsage(null, null));
     }
 
     private static Map<String, Long> countByStatus(List<Row> rows) {

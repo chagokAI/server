@@ -92,6 +92,9 @@ public class BoxSpec {
     @Column(name = "stock_updated_at", columnDefinition = "timestamptz")
     private Instant stockUpdatedAt;
 
+    @Column(name = "forecast_updated_at", columnDefinition = "timestamptz")
+    private Instant forecastUpdatedAt;
+
     @Version
     @Column(name = "version")
     private Integer version;
