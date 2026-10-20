@@ -45,6 +45,12 @@ tasks.named('test') {
     useJUnitPlatform()
 }
 
+tasks.withType(Test).configureEach {
+    // 테스트 도중 정기 작업이 개발 DB의 센터를 변경하지 않게 한다. 실행 로직은 명시적으로 검증한다.
+    systemProperty 'chagok.jobs.scheduling-enabled', 'false'
+    systemProperty 'chagok.jobs.worker-enabled', 'false'
+}
+
 // PostgreSQL을 설치하지 않은 환경에서도 API 계약·계산·매핑 검증을 실행한다.
 tasks.register('offlineTest', Test) {
     description = '외부 DB 없이 실행 가능한 테스트 (내장 Kafka 포함)'
@@ -55,5 +61,6 @@ tasks.register('offlineTest', Test) {
     filter {
         excludeTestsMatching 'com.skala.chagok.ChagokApplicationTests'
         excludeTestsMatching 'com.skala.chagok.dlanalysis.DlAnalysisFlowIntegrationTest'
+        excludeTestsMatching 'com.skala.chagok.job.JobFlowIntegrationTest'
     }
 }

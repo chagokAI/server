@@ -78,6 +78,14 @@ chagok:
       read-timeout: 10s
   timezone: Asia/Seoul
   refresh-after-seconds: 300
+  jobs:
+    scheduling-enabled: ${JOB_SCHEDULING_ENABLED:true}
+    worker-enabled: ${JOB_WORKER_ENABLED:true}
+    cron: "${JOB_CRON:0 */5 * * * *}"
+    poll-delay: 1000
+    lookback-days: 28
+    order-unit: 100
+    timeout: 5m
   inventory:
     caution-buffer-days: 3
     target-days-to-stockout: 14
