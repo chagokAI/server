@@ -9,7 +9,6 @@ For further reference, please consider the following sections:
 * [Create an OCI image](https://docs.spring.io/spring-boot/4.1.1/gradle-plugin/packaging-oci-image.html)
 * [Spring Boot Actuator](https://docs.spring.io/spring-boot/4.1.1/reference/actuator/index.html)
 * [Spring Data JPA](https://docs.spring.io/spring-boot/4.1.1/reference/data/sql.html#data.sql.jpa-and-spring-data)
-* [Flyway Migration](https://docs.spring.io/spring-boot/4.1.1/how-to/data-initialization.html#howto.data-initialization.migration-tool.flyway)
 * [Spring Security](https://docs.spring.io/spring-boot/4.1.1/reference/web/spring-security.html)
 * [Validation](https://docs.spring.io/spring-boot/4.1.1/reference/io/validation.html)
 * [Spring Web](https://docs.spring.io/spring-boot/4.1.1/reference/web/servlet.html)
