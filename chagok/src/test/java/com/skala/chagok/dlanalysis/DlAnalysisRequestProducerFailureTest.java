@@ -7,7 +7,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
-import java.time.Instant;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 import org.apache.kafka.common.errors.TimeoutException;
@@ -22,7 +22,7 @@ import org.springframework.kafka.support.SendResult;
 class DlAnalysisRequestProducerFailureTest {
 
     private static final DlAnalysisRequest REQUEST = DlAnalysisRequest.of(
-            "evt-1", "job-1", "wh-1", "sh-1", "captures/job-1/cam1.jpg", Instant.parse("2026-10-20T06:00:00Z"));
+            "evt-1", "wh-1", List.of("captures/evt-1/cam1.jpg", "captures/evt-1/cam2.jpg", "captures/evt-1/cam3.jpg"));
 
     @SuppressWarnings("unchecked")
     private final KafkaTemplate<String, DlAnalysisRequest> kafkaTemplate = mock(KafkaTemplate.class);
@@ -38,7 +38,7 @@ class DlAnalysisRequestProducerFailureTest {
 
         assertThatThrownBy(() -> producer.publish(REQUEST))
                 .isInstanceOf(DlAnalysisRequestPublishException.class)
-                .hasMessageContaining("job-1");
+                .hasMessageContaining("evt-1");
     }
 
     @Test

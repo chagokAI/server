@@ -16,7 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * DL 분석 요청을 요청 토픽에 발행하고, 브로커가 기록했다는 확인까지 기다린다.
  *
- * <p>키는 jobId다. 같은 작업의 메시지가 같은 파티션에 쌓여 순서가 유지되고, 다른 작업 사이의 순서는 보장하지 않는다.
+ * <p>키는 eventId(item_event.event_id)다. 같은 작업의 메시지가 같은 파티션에 쌓여 순서가 유지되고, 다른 작업 사이의 순서는 보장하지 않는다.
  *
  * <p>작업 서비스는 「발행 확인 → 작업 저장」 순서로 접수한다. outbox 없이 정합성을 맞추는 방식이라
  * 발행 확인 전에는 아무것도 저장하지 않고, 확인을 못 받으면 예외로 알려 요청을 실패시킨다.
@@ -43,13 +43,13 @@ public class DlAnalysisRequestProducer {
      */
     public void publish(DlAnalysisRequest request) {
         try {
-            kafkaTemplate.send(topic, request.jobId(), request)
+            kafkaTemplate.send(topic, request.eventId(), request)
                     .get(publishTimeout.toMillis(), TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new DlAnalysisRequestPublishException(request.jobId(), e);
+            throw new DlAnalysisRequestPublishException(request.eventId(), e);
         } catch (ExecutionException | TimeoutException | KafkaException e) {
-            throw new DlAnalysisRequestPublishException(request.jobId(), e);
+            throw new DlAnalysisRequestPublishException(request.eventId(), e);
         }
     }
 

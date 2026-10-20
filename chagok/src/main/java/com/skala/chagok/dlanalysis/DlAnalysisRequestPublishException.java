@@ -8,7 +8,7 @@ package com.skala.chagok.dlanalysis;
  */
 public class DlAnalysisRequestPublishException extends RuntimeException {
 
-    public DlAnalysisRequestPublishException(String jobId, Throwable cause) {
-        super("DL 분석 요청 발행 확인 실패: jobId=" + jobId, cause);
+    public DlAnalysisRequestPublishException(String eventId, Throwable cause) {
+        super("DL 분석 요청 발행 확인 실패: eventId=" + eventId, cause);
     }
 }

@@ -2,7 +2,6 @@ package com.skala.chagok.dlanalysis;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -59,7 +58,7 @@ class DlAnalysisRequestProducerTest {
     @Test
     void publishesPlainJsonKeyedByJobId() throws Exception {
         DlAnalysisRequest request = DlAnalysisRequest.of(
-                "evt-1", "job-1", "wh-1", "sh-1", "captures/job-1/cam1.jpg", Instant.parse("2026-10-20T06:00:00Z"));
+                "evt-1", "wh-1", List.of("captures/evt-1/cam1.jpg", "captures/evt-1/cam2.jpg", "captures/evt-1/cam3.jpg"));
 
         producer.publish(request);
 
@@ -70,18 +69,15 @@ class DlAnalysisRequestProducerTest {
             consumer.subscribe(List.of(properties.topic()));
             ConsumerRecord<String, String> record = KafkaTestUtils.getSingleRecord(consumer, properties.topic());
 
-            assertThat(record.key()).isEqualTo("job-1");
+            assertThat(record.key()).isEqualTo("evt-1");
             assertThat(record.headers().lastHeader("__TypeId__")).isNull();
             JsonMapper mapper = JsonMapper.builder().build();
             assertThat(mapper.readTree(record.value())).isEqualTo(mapper.readTree("""
                     {
                       "schemaVersion": 1,
                       "eventId": "evt-1",
-                      "jobId": "job-1",
                       "warehouseId": "wh-1",
-                      "shipperId": "sh-1",
-                      "imageRef": "captures/job-1/cam1.jpg",
-                      "capturedAt": "2026-10-20T06:00:00Z"
+                      "imageRefs": ["captures/evt-1/cam1.jpg", "captures/evt-1/cam2.jpg", "captures/evt-1/cam3.jpg"]
                     }
                     """));
         }
