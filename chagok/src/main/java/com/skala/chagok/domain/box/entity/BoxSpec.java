@@ -95,4 +95,51 @@ public class BoxSpec {
     @Version
     @Column(name = "version")
     private Integer version;
+
+    /** 재고 관리 화면의 안전 재고 수정(INV-API-02). */
+    public void updateSafetyQty(Integer safetyQty) {
+        this.safetyQty = safetyQty;
+    }
+
+    public void update(String code, String name, Character sizeClass,
+                       Integer innerWidthMm, Integer innerDepthMm, Integer innerHeightMm,
+                       String material, Supplier supplier, Integer unitPriceKrw,
+                       Boolean isCustom, Boolean isActive, String description) {
+        if (code != null) {
+            this.code = code;
+        }
+        if (name != null) {
+            this.name = name;
+        }
+        if (sizeClass != null) {
+            this.sizeClass = sizeClass;
+        }
+        if (innerWidthMm != null) {
+            this.innerWidthMm = innerWidthMm;
+        }
+        if (innerDepthMm != null) {
+            this.innerDepthMm = innerDepthMm;
+        }
+        if (innerHeightMm != null) {
+            this.innerHeightMm = innerHeightMm;
+        }
+        if (material != null) {
+            this.material = material;
+        }
+        if (supplier != null) {
+            this.supplier = supplier;
+        }
+        if (unitPriceKrw != null) {
+            this.unitPriceKrw = unitPriceKrw;
+        }
+        if (isCustom != null) {
+            this.isCustom = isCustom;
+        }
+        if (isActive != null) {
+            this.isActive = isActive;
+        }
+        if (description != null) {
+            this.description = description;
+        }
+    }
 }
