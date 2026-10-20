@@ -24,3 +24,19 @@ spring:
       mode: always
       schema-locations: classpath:db/init/extensions.sql
       encoding: UTF-8
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    # 메시지 값은 JSON이다. Python 소비자도 읽어야 하므로 Java 클래스 이름이 담기는 타입 헤더는 붙이지 않는다
+    producer:
+      value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
+      properties:
+        spring.json.add.type.headers: false
+
+# DL 분석 요청 토픽(가안). 이름·파티션은 팀 합의 전 값이고, 복제 계수 1은 로컬 단일 브로커 기준이다
+chagok:
+  kafka:
+    dl-analysis-request:
+      topic: chagok.dl.analysis-request.v1
+      partitions: 3
+      replicas: 1
