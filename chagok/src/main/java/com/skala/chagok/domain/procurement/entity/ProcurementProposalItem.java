@@ -1,6 +1,9 @@
 package com.skala.chagok.domain.procurement.entity;
 
 import com.skala.chagok.domain.box.entity.BoxSpec;
+import com.skala.chagok.domain.box.dto.BoxSnapshot;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.EmbeddedId;
@@ -50,4 +53,11 @@ public class ProcurementProposalItem {
 
     @Column(name = "proposed_qty")
     private Integer proposedQty;
+
+    @Column(name = "unit_price_krw")
+    private Integer unitPriceKrw;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "box_snapshot", columnDefinition = "jsonb")
+    private BoxSnapshot boxSnapshot;
 }

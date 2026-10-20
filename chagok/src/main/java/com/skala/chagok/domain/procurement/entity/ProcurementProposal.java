@@ -53,4 +53,10 @@ public class ProcurementProposal {
     @CreationTimestamp
     @Column(name = "generated_at", columnDefinition = "timestamptz")
     private Instant generatedAt;
+
+    @Column(name = "data_as_of", columnDefinition = "timestamptz")
+    private Instant dataAsOf;
+
+    @Column(name = "job_id")
+    private UUID jobId;
 }
