@@ -39,12 +39,26 @@ public class DlAnalysisAcceptService {
     }
 
     /**
+     * 지금 촬영한 1건을 접수한다. 촬영 시각은 접수 시각으로 기록한다.
+     *
      * @param imageRefs cam1, cam2, cam3 순서의 이미지 경로
      * @return 접수한 작업의 eventId
      * @throws IllegalArgumentException 센터가 없거나 이미지가 3장이 아닐 때. 이때는 발행도 하지 않는다
      * @throws DlAnalysisRequestPublishException 발행 확인을 받지 못했을 때. 아무것도 저장되지 않는다
      */
     public String accept(UUID warehouseId, List<String> imageRefs) {
+        return accept(warehouseId, imageRefs, Instant.now());
+    }
+
+    /**
+     * 촬영 시각을 지정해 접수한다. 과거 촬영분을 일괄로 넣을 때 쓴다(시계열 시험용 일괄 접수 포함).
+     *
+     * @param occurredAt item_event.occurred_at에 기록할 촬영 시각
+     */
+    public String accept(UUID warehouseId, List<String> imageRefs, Instant occurredAt) {
+        if (occurredAt == null) {
+            throw new IllegalArgumentException("촬영 시각이 없다");
+        }
         if (warehouseId == null || entityManager.find(Warehouse.class, warehouseId) == null) {
             throw new IllegalArgumentException("센터가 없다: " + warehouseId);
         }
@@ -54,7 +68,7 @@ public class DlAnalysisAcceptService {
         producer.publish(request);
 
         itemEvents.save(ItemEvent.builder()
-                .id(new ItemEventId(eventId, Instant.now()))
+                .id(new ItemEventId(eventId, occurredAt))
                 .warehouse(entityManager.getReference(Warehouse.class, warehouseId))
                 .status(ItemEventStatus.PENDING.name())
                 .build());
