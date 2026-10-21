@@ -28,6 +28,31 @@ public class SecurityConfig {
     @Bean SecurityContextRepository securityContexts() { return new HttpSessionSecurityContextRepository(); }
     @Bean CsrfTokenRepository csrfTokens() { return new HttpSessionCsrfTokenRepository(); }
 
+    /**
+     * 에이전트 business-mcp 전용 /internal/** . 세션·CSRF 없이 X-Internal-Token 헤더 하나로 인증한다.
+     * 토큰(INTERNAL_API_TOKEN)이 비어 있으면 모두 거부한다. docker network 밖에는 이 경로를 열지 않는다.
+     */
+    @Bean @org.springframework.core.annotation.Order(1)
+    SecurityFilterChain internalApiChain(HttpSecurity http, @Value("${chagok.internal.token:}") String token) throws Exception {
+        byte[] expected = token.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        return http.securityMatcher("/internal/**").httpBasic(basic -> basic.disable()).formLogin(form -> form.disable())
+                .logout(logout -> logout.disable()).csrf(csrf -> csrf.disable()).requestCache(cache -> cache.disable())
+                .sessionManagement(session -> session.sessionCreationPolicy(
+                        org.springframework.security.config.http.SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                .addFilterBefore(new OncePerRequestFilter() {
+                    @Override protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
+                            FilterChain chain) throws ServletException, IOException {
+                        String given = request.getHeader("X-Internal-Token");
+                        if (expected.length == 0 || given == null || !java.security.MessageDigest.isEqual(expected,
+                                given.getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
+                            write(request, response, ErrorCode.UNAUTHENTICATED); return;
+                        }
+                        chain.doFilter(request, response);
+                    }
+                }, AuthorizationFilter.class).build();
+    }
+
     @Bean SecurityFilterChain securityFilterChain(HttpSecurity http, SecurityContextRepository contexts,
             CsrfTokenRepository tokens, CurrentUserProvider users,
             @Value("${chagok.auth.enabled:true}") boolean enabled) throws Exception {
