@@ -27,7 +27,7 @@ class RefreshPolicyServiceTest {
     private final WarehouseRepository warehouses = mock(WarehouseRepository.class);
     private final AnalysisJobRepository jobs = mock(AnalysisJobRepository.class);
     private final ChagokProperties properties = new ChagokProperties(ZoneId.of("Asia/Seoul"), 300,
-            new ChagokProperties.Inventory(3, 14));
+            new ChagokProperties.Inventory(3, 14), new ChagokProperties.BoxSize(10, 50));
     /** 2026-10-21 10:02 (Asia/Seoul) */
     private final Clock clock = Clock.fixed(Instant.parse("2026-10-21T01:02:00Z"), ZoneOffset.UTC);
 
