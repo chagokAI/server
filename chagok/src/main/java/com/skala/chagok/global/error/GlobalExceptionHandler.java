@@ -38,6 +38,11 @@ public class GlobalExceptionHandler {
 
     private static final String REQUEST_ID_HEADER = "X-Request-Id";
 
+    /** SSE 등 비동기 응답 중 화면이 연결을 끊은 경우. 응답할 대상이 없으므로 아무것도 쓰지 않는다 */
+    @ExceptionHandler(org.springframework.web.context.request.async.AsyncRequestNotUsableException.class)
+    public void clientDisconnected() {
+    }
+
     @ExceptionHandler(EntityNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleNotFound(EntityNotFoundException e, HttpServletRequest request) {
         return build(ErrorCode.NOT_FOUND, e.getMessage(), List.of(), request);
