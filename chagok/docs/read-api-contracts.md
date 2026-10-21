@@ -242,6 +242,15 @@ CurrentUserProvider는 세션 사용자 ID로 본인을 조회한다. 명시적�
 - 상세의 matchCandidates 및 GET products/{id}/box-candidates는 적합한 활성 박스를 충전율 내림차순으로 반환한다.
 - 후보: boxSpec, fillRatePct, recommended(첫 후보), selected, source=DIMENSIONS. 회전을 허용한 치수 비교이며 AI 결과가 아니다.
 - 이름만 수정하면 매칭 결과를 바꾸지 않는다. 변경된 버전은 다음 요청의 expectedVersion으로 사용한다.
+- 상품 치수를 PATCH하면 MANUAL이 아닌 상품은 후보 1순위를 자동 저장한다(match_source=DIMENSIONS, 상태는 85% 기준).
+  들어가는 박스가 없으면 UNMATCHED. MANUAL은 박스를 바꾸지 않고 현재 박스만 재검증한다.
+- 자동 저장 박스는 같은 시점의 box-candidates 1순위(recommended)와 항상 같다.
+- 비스듬한 배치 정책 `chagok.matching.tilted`(기본 enabled=false, clearance-mm=0, 값은 팀 결정 전):
+  켜면 90도 회전으로 안 들어가는 박스에 한 평면 기울임 판정(Carver 조건)을 추가하고 후보 source=TILTED로 표시한다.
+  TILTED 매칭은 충전율과 관계없이 REVIEW이며 충전율은 부피비 그대로다. 수동 지정(PUT box-match)은 기존 판정만 쓴다.
+  시안 박스 9종·상품 7종 기준으로는 기울여야만 들어가는 조합이 없어 결과가 바뀌지 않았다.
+- POST product-matches/recalculate: 매칭 박스가 없는 활성 상품에 1순위를 일괄 적용한다. DB에 직접 들어온 상품 채우기용.
+  응답 `{targetCount, matchedCount, reviewCount, unmatchedCount}`. 이미 매칭된 상품은 건드리지 않아 반복 호출해도 같다.
 
 ## 신규 규격·안전 재고 정책
 
@@ -249,6 +258,19 @@ CurrentUserProvider는 세션 사용자 ID로 본인을 조회한다. 명시적�
 targetQty는 선택이며 없으면 stockLevelPct=null이다. 새 규격은 alertEnabled=true로 생성한다.
 재고 수준은 onHandQty/targetQty×100(최대 100), 주의 판정은 소진일≤공급사 리드타임+여유일이다.
 활성 규격·참조·재고·입고/실사 이력이 있으면 삭제할 수 없다.
+
+## 박스 규격 재질·크기 분류·삭제 불가 사유
+
+- material은 코드 A, B, E, AB, BA, BB만 받는다. 생성 시 필수, PATCH는 선택. 그 외 값은 400이며 fieldErrors에 material이 온다.
+- 응답은 material(코드)과 materialLabel("골판지 B골")을 함께 준다. DB에 원본 표기("골판지 B골")가 있어도 코드로 바꿔 응답한다.
+- 선택지는 `GET /api/v1/box-materials`가 `[{code, label}]`로 준다. 센터와 무관한 고정 목록이다.
+- sizeClass는 요청으로 받지 않는다(보내면 400). 내경 부피로 서버가 정한다: S ≤ 10L < M ≤ 50L < L.
+  기준은 `chagok.box-size.small-max-liters`, `medium-max-liters`. 내경을 PATCH하면 다시 분류한다.
+- 삭제가 막히면 409 REFERENCED_SPEC와 함께 `error.details`를 준다:
+  `active`(사용 중 여부), `linkedProductCount`(활성 연결 상품 수), `openPurchaseOrderNos`(PENDING·APPROVED·IN_TRANSIT 발주번호),
+  `onHandQty`, `hasHistory`(비활성 상품·완료 발주·제안·이벤트·입고/실사 이력 참조 여부).
+- 본문을 해석할 수 없는 400(정의 외 필드, 허용되지 않는 enum 값 등)은 알 수 있으면 원인 필드를 fieldErrors로 준다.
+- 공급사·카테고리 목록은 이름 가나다순이다. DB 기본 정렬(en_US.utf8)이 한글을 가나다순으로 정렬하지 않아 서버에서 정렬한다.
 
 PATCH box-inventories/{id}/policy:
 

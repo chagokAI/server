@@ -149,8 +149,18 @@ public class Product {
 
     public void refreshMatch(BigDecimal rate) {
         this.fillRatePct = rate;
-        this.matchStatus = "MANUAL".equals(matchSource) || rate.compareTo(BigDecimal.valueOf(85)) >= 0
-                ? MatchStatus.MATCHED : MatchStatus.REVIEW;
+        // 직접 지정은 항상 MATCHED, 비스듬히 넣어야 하는 자동 매칭(TILTED)은 항상 REVIEW, 그 외는 85% 기준.
+        if ("MANUAL".equals(matchSource)) this.matchStatus = MatchStatus.MATCHED;
+        else if ("TILTED".equals(matchSource)) this.matchStatus = MatchStatus.REVIEW;
+        else this.matchStatus = rate.compareTo(BigDecimal.valueOf(85)) >= 0 ? MatchStatus.MATCHED : MatchStatus.REVIEW;
+    }
+
+    /** 치수 기준 1순위 박스를 자동으로 저장한다. 직접 지정 사유는 비우고, 상태는 refreshMatch 기준을 따른다. */
+    public void applyAutoMatch(BoxSpec boxSpec, BigDecimal fillRatePct, String source) {
+        this.matchedBoxSpec = boxSpec;
+        this.matchSource = source;
+        this.matchOverrideReason = null;
+        refreshMatch(fillRatePct);
     }
 
     public void clearMatch() {

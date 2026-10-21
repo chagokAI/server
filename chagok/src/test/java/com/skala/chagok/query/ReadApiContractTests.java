@@ -36,7 +36,7 @@ class ReadApiContractTests {
     private final NotificationQueryService notifications = mock(NotificationQueryService.class);
     private final JobQueryService jobs = mock(JobQueryService.class);
     private final ApiResponses responses = new ApiResponses(new ChagokProperties(ZoneId.of("Asia/Seoul"), 300,
-            new ChagokProperties.Inventory(3, 14)));
+            new ChagokProperties.Inventory(3, 14), new ChagokProperties.BoxSize(10, 50)));
     private MockMvc mvc;
 
     @BeforeEach void setup() {

@@ -89,6 +89,15 @@ chagok:
   inventory:
     caution-buffer-days: 3
     target-days-to-stockout: 14
+  # 내경 부피 기준 박스 크기 분류. S ≤ 10L < M ≤ 50L < L
+  box-size:
+    small-max-liters: 10
+    medium-max-liters: 50
+  # 박스 매칭 정책. tilted: 90도 회전으로 안 들어가는 박스에 비스듬한 배치 판정을 추가(기본 끄기, 팀 결정 전)
+  matching:
+    tilted:
+      enabled: false
+      clearance-mm: 0
 
   auth:
     enabled: ${AUTH_ENABLED:true}
