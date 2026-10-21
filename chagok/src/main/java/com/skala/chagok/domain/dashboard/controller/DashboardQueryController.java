@@ -23,8 +23,12 @@ public class DashboardQueryController {
 
     @GetMapping("/simulation-state")
     public ApiResponse<SceneResponse> scene(@PathVariable UUID warehouseId,
-                                             @RequestParam(defaultValue = "100") @Min(1) @Max(500) int limit) {
-        var scene = observations.scene(warehouseId, limit);
+                                             @RequestParam(defaultValue = "100") @Min(1) @Max(500) int limit,
+                                             @RequestParam(required = false) java.time.OffsetDateTime from,
+                                             @RequestParam(required = false) java.time.OffsetDateTime to) {
+        // from·to 가 없으면 최근 limit 건(최신순), 있으면 그 기간을 시간순으로(디지털트윈 재생)
+        var scene = from == null && to == null ? observations.scene(warehouseId, limit)
+                : observations.scene(warehouseId, limit, from == null ? null : from.toInstant(), to == null ? null : to.toInstant());
         return responses.of(scene, null, scene.pendingEventCount());
     }
 
