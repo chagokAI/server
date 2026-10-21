@@ -245,6 +245,10 @@ CurrentUserProvider는 세션 사용자 ID로 본인을 조회한다. 명시적�
 - 상품 치수를 PATCH하면 MANUAL이 아닌 상품은 후보 1순위를 자동 저장한다(match_source=DIMENSIONS, 상태는 85% 기준).
   들어가는 박스가 없으면 UNMATCHED. MANUAL은 박스를 바꾸지 않고 현재 박스만 재검증한다.
 - 자동 저장 박스는 같은 시점의 box-candidates 1순위(recommended)와 항상 같다.
+- 비스듬한 배치 정책 `chagok.matching.tilted`(기본 enabled=false, clearance-mm=0, 값은 팀 결정 전):
+  켜면 90도 회전으로 안 들어가는 박스에 한 평면 기울임 판정(Carver 조건)을 추가하고 후보 source=TILTED로 표시한다.
+  TILTED 매칭은 충전율과 관계없이 REVIEW이며 충전율은 부피비 그대로다. 수동 지정(PUT box-match)은 기존 판정만 쓴다.
+  시안 박스 9종·상품 7종 기준으로는 기울여야만 들어가는 조합이 없어 결과가 바뀌지 않았다.
 - POST product-matches/recalculate: 매칭 박스가 없는 활성 상품에 1순위를 일괄 적용한다. DB에 직접 들어온 상품 채우기용.
   응답 `{targetCount, matchedCount, reviewCount, unmatchedCount}`. 이미 매칭된 상품은 건드리지 않아 반복 호출해도 같다.
 
