@@ -234,7 +234,7 @@ CurrentUserProvider는 세션 사용자 ID로 본인을 조회한다. 명시적�
 ## 상품 수정·매칭 후보
 
 - 상품 목록·상세에 barcode(String, 선행 0 보존), weightG(Integer, g)를 추가한다.
-- PATCH 상품은 expectedVersion 필수. barcode는 숫자 문자열 1~30자이고 센터 안에서 중복될 수 없다.
+- PATCH 상품은 expectedVersion 필수. barcode는 영문·숫자 1~30자 문자열(선행 0 보존, 영문 대소문자 구분)이고 센터 안에서 중복될 수 없다. 패션 상품처럼 원천 식별자가 영문·숫자 혼합인 경우가 있어 숫자만으로 제한하지 않는다.
 - code는 SKU다. DL 상품 조회는 barcode를 사용하며, barcode 없는 기존 행만 code와 비교한다.
 - 상품 치수 또는 박스 치수·활성 여부가 바뀌면 연결된 활성 상품의 적합 여부와 비율을 재검증한다.
 - 기존 박스가 부적합·비활성이면 박스·비율·수동 사유를 비우고 UNMATCHED로 바꾼다.
