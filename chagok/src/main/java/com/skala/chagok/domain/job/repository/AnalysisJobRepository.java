@@ -16,6 +16,10 @@ public interface AnalysisJobRepository extends JpaRepository<AnalysisJob, UUID> 
 
     Optional<AnalysisJob> findByActiveKey(String activeKey);
 
+    /** 새로고침 정책의 "마지막 정기 실행". 정기 실행은 이번 달·다음 달 두 건을 접수하므로 가장 최근 접수 건을 쓴다. */
+    Optional<AnalysisJob> findFirstByWarehouseIdAndTriggerOrderByCreatedAtDescIdDesc(UUID warehouseId,
+                                                                                    AnalysisJob.Trigger trigger);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2"))
     @Query("select j from AnalysisJob j where j.status = :status order by j.createdAt, j.id")

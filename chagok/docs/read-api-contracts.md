@@ -336,3 +336,29 @@ GET purchase-orders/open?boxSpecId=UUID: APPROVED/IN_TRANSIT 중 미입고 수�
 항목은 id,poNo,supplierName,deliveryDate,items[{boxSpec,orderedQty,receivedQty,remainingQty}]다.
 기존 POST purchase-orders 직접 승인 경로는 단일 공급사·현재 단가를 검증하고 공통 envelope로 응답한다.
 신규 화면은 초안 생성·수정 흐름을 사용한다.
+
+## COMMON-API-03: 새로고침 정책
+
+`GET /api/v1/warehouses/{warehouseId}/refresh-policy` (VIEWER 이상). data:
+
+```json
+{
+  "refreshAfterSeconds": 300,
+  "timezone": "Asia/Seoul",
+  "analysisSchedule": {
+    "enabled": true,
+    "cron": "0 */5 * * * *",
+    "nextRunAt": "2026-10-21T10:05:00+09:00",
+    "lastRun": {"jobId": "…", "targetMonth": "2026-11", "status": "SUCCEEDED",
+                "submittedAt": "2026-10-21T10:00:00+09:00", "completedAt": "2026-10-21T10:00:30+09:00"}
+  }
+}
+```
+
+- refreshAfterSeconds는 모든 화면 공통이며 각 응답 meta.refreshAfterSeconds와 같다(`chagok.refresh-after-seconds`).
+- analysisSchedule은 정기 분석 배치 일정이다. 화면 재조회 주기와 별개다.
+  enabled·cron은 ForecastScheduler와 같은 설정(`chagok.jobs.scheduling-enabled`, `chagok.jobs.cron`)을 읽는다.
+- nextRunAt은 센터 시간대 기준 cron의 다음 시각이며 정기 실행이 꺼져 있으면 null이다.
+- lastRun은 이 센터의 가장 최근 정기(SCHEDULED) 작업이다. 한 번에 이번 달·다음 달 두 건을 접수하므로 최근 접수 건을 준다.
+  아직 끝나지 않았으면 completedAt=null, 정기 실행 이력이 없으면 lastRun=null이다.
+- 값은 설정 파일에서만 관리하며 모든 센터에 같다. ERD 변경은 없다.
