@@ -2,6 +2,7 @@ package com.skala.chagok.domain.agent.controller;
 
 import com.skala.chagok.domain.agent.dto.AgentDataDtos.*;
 import com.skala.chagok.domain.agent.service.AgentDataService;
+import com.skala.chagok.global.config.MatchingProperties;
 import com.skala.chagok.global.response.*;
 import java.time.*;
 import java.util.*;
@@ -17,6 +18,12 @@ import org.springframework.web.bind.annotation.*;
 public class AgentDataController {
     private final AgentDataService service;
     private final ApiResponses responses;
+    private final MatchingProperties matching;
+
+    @GetMapping("/matching-policy")
+    public ApiResponse<MatchingPolicy> matchingPolicy() {
+        return responses.of(new MatchingPolicy(matching.tilted().enabled(), matching.tilted().clearanceMm()));
+    }
 
     @GetMapping("/warehouses")
     public ApiResponse<List<WarehouseItem>> warehouses() { return responses.of(service.warehouses()); }

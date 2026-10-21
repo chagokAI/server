@@ -13,6 +13,9 @@ import java.util.UUID;
 public final class AgentDataDtos {
     private AgentDataDtos() {}
 
+    /** 박스 수용 판정 정책(chagok.matching). 에이전트가 같은 기준으로 충진율을 계산하도록 서버 값을 그대로 준다 */
+    public record MatchingPolicy(boolean tiltedEnabled, int tiltedClearanceMm) {}
+
     public record WarehouseItem(UUID warehouseId, String name, String address) {}
 
     public record BoxSpecItem(UUID boxSpecId, String code, String name, String description, String sizeClass,
