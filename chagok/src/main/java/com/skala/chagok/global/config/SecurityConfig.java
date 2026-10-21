@@ -62,6 +62,8 @@ public class SecurityConfig {
         if (!enabled) return http.csrf(csrf -> csrf.disable()).authorizeHttpRequests(auth -> auth.anyRequest().permitAll()).build();
         http.csrf(csrf -> csrf.csrfTokenRepository(tokens))
                 .authorizeHttpRequests(auth -> auth
+                        // SSE(AI 작업 진행 이벤트)의 비동기 디스패치는 첫 요청에서 이미 인가됐다
+                        .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ASYNC).permitAll()
                         .requestMatchers("/api/v1/auth/csrf", "/api/v1/auth/login", "/actuator/health", "/error").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/**").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/logout").authenticated()
