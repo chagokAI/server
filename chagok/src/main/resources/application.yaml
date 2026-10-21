@@ -101,6 +101,12 @@ chagok:
 
   auth:
     enabled: ${AUTH_ENABLED:true}
+  # 에이전트(business-mcp) 내부 API(/internal/**) 토큰. 비어 있으면 내부 API 전부 거부
+  internal:
+    token: ${INTERNAL_API_TOKEN:}
+  # 박스 주문 제안 에이전트 서버(box_agent agent_server.py). 비어 있으면 AI 작업 API 는 503
+  agent:
+    url: ${AGENT_API_URL:}
   bootstrap:
     enabled: ${BOOTSTRAP_ENABLED:false}
     employee-id: ${BOOTSTRAP_EMPLOYEE_ID:}
