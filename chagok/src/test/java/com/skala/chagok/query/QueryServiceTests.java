@@ -33,7 +33,7 @@ import static org.mockito.Mockito.*;
 class QueryServiceTests {
     private final UUID warehouseId = UUID.randomUUID();
     private final WarehouseQueryGuard guard = mock(WarehouseQueryGuard.class);
-    private final ChagokProperties properties = new ChagokProperties(ZoneId.of("Asia/Seoul"), 300, new ChagokProperties.Inventory(3, 14));
+    private final ChagokProperties properties = new ChagokProperties(ZoneId.of("Asia/Seoul"), 300, new ChagokProperties.Inventory(3, 14), new ChagokProperties.BoxSize(10, 50));
 
     @Test void rejectsInvalidMonthsAndReversedDateRanges() {
         for (String invalid : List.of("2026-13", "26-11", "2026-1", "2026-11-01", ""))

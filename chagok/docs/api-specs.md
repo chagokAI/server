@@ -2,7 +2,7 @@
 
 [x] 구현, [ ] 미구현. 응답 필드와 집계 기준은 [조회 API 응답 계약](read-api-contracts.md)을 참고한다.
 
-와이어프레임의 Spring 업무 흐름을 구현한다. 공급사 조회·새로고침 정책 조회는 직접 구현용으로 남겨둔다.
+와이어프레임의 Spring 업무 흐름을 구현한다. 새로고침 정책 조회는 직접 구현용으로 남겨둔다.
 세션 로그인·센터/역할 검증, 입고·실사 조정, 공급사별 발주 초안·수정·승인·부분 입고를 제공한다.
 분석 작업 POST·재시도·정기 실행은 OBSERVATION_BASELINE 방식의 참고 계산이다.
 로그인·CSRF 토큰 조회·health 외 API는 로그인 필요. 조회·로그아웃·본인 알림 읽음은 VIEWER 이상,
@@ -12,7 +12,7 @@
 - [x] **AUTH-API-02** — `GET /api/v1/auth/me` — 없음 → 200 UserSession / AUTH-03
 - [x] **AUTH-API-03** — `POST /api/v1/auth/logout` — 없음 → 204, 세션 종료 / AUTH-04
 
-- [ ] **COMMON-API-02** — `GET /api/v1/warehouses/{warehouseId}/suppliers` — keyword? → 200 Supplier[] / SPEC-03, PO-06 **직접 구현용으로 남김**
+- [x] **COMMON-API-02** — `GET /api/v1/warehouses/{warehouseId}/suppliers` — keyword? → 200 Supplier[] / SPEC-03, PO-06 (이름 가나다순)
 - [ ] **COMMON-API-03** — `GET /api/v1/warehouses/{warehouseId}/refresh-policy` — 없음 → 200 RefreshPolicy / COM-02 **직접 구현용으로 남김**
 
 - [x] **DASH-API-01** — `GET /api/v1/warehouses/{warehouseId}/dashboard` — targetMonth? 기본 다음 달 → 200 Dashboard / DASH-01,04~10
@@ -43,10 +43,12 @@
 - [x] COMMON-API-01 — `GET /api/v1/warehouses/{warehouseId}/categories` — 카테고리 목록
 - [x] MATCH-API-01 — `GET /api/v1/warehouses/{warehouseId}/product-matches` — 상품·매칭·상태별 개수·페이지
 - [x] MATCH-API-02 — `GET /api/v1/warehouses/{warehouseId}/products/{productId}` — 상품 상세·수동 지정 사유·version
-- [x] MATCH-API-03~05 — 상품 수정·수동 박스 지정·비활성화
+- [x] MATCH-API-03~05 — 상품 수정(치수 변경 시 1순위 자동 적용)·수동 박스 지정·비활성화
+- [x] (추가) `POST /api/v1/warehouses/{warehouseId}/product-matches/recalculate` — 미매칭 상품에 치수 기준 1순위 일괄 적용
 - [x] SPEC-API-01 — `GET /api/v1/warehouses/{warehouseId}/box-specs` — 목록·연결 상품 수·상태별 개수·요약
 - [x] SPEC-API-02 — `GET /api/v1/warehouses/{warehouseId}/box-specs/{boxSpecId}` — 상세·연결 상품 수
-- [x] SPEC-API-03~05 — 규격 생성·수정·참조/재고 없는 규격 삭제
+- [x] SPEC-API-03~05 — 규격 생성·수정·미사용이고 참조/재고 없는 규격 삭제(막히면 409 details)
+- [x] (추가) `GET /api/v1/box-materials` — 재질 드롭다운 선택지 `[{code, label}]`
 - [x] INV-API-01 — `GET /api/v1/warehouses/{warehouseId}/box-inventories` — 목록·요약·예측 출처·재고/예측 갱신 시각
 - [x] INV-API-02 — 안전 재고 정책 수정
 - [x] 기존 발주 승인 — `POST /api/v1/warehouses/{warehouseId}/purchase-orders` — APPROVED 발주서 생성·품목 규격 snapshot 저장

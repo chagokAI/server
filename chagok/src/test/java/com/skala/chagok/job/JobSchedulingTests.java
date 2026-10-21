@@ -27,7 +27,7 @@ class JobSchedulingTests {
             context.registerBean(WarehouseRepository.class, () -> warehouses);
             context.registerBean(JobCommandService.class, () -> commands);
             context.registerBean(ChagokProperties.class, () -> new ChagokProperties(ZoneId.of("Asia/Seoul"), 300,
-                    new ChagokProperties.Inventory(3, 14)));
+                    new ChagokProperties.Inventory(3, 14), new ChagokProperties.BoxSize(10, 50)));
             context.register(JobSchedulingConfig.class, ForecastScheduler.class);
             context.refresh();
             YearMonth month = YearMonth.now(ZoneId.of("Asia/Seoul"));

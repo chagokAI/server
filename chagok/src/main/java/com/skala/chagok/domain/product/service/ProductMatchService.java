@@ -5,6 +5,7 @@ import com.skala.chagok.domain.box.repository.BoxSpecRepository;
 import com.skala.chagok.domain.category.entity.Category;
 import com.skala.chagok.domain.category.repository.CategoryRepository;
 import com.skala.chagok.domain.product.dto.MatchOverrideRequest;
+import com.skala.chagok.domain.product.dto.MatchRecalculationResponse;
 import com.skala.chagok.domain.product.dto.ProductDetailResponse;
 import com.skala.chagok.domain.product.dto.ProductMatchResponse;
 import com.skala.chagok.domain.product.dto.ProductUpdateRequest;
@@ -21,6 +22,7 @@ import com.skala.chagok.global.web.PageRequests;
 import com.skala.chagok.global.web.Specs;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -101,12 +103,35 @@ public class ProductMatchService {
             // 사이즈를 함께 고친 경우에도 위에서 먼저 반영했으므로 새 사이즈 기준으로 계산된다.
             applyOverride(product, warehouseId, request.boxSpecId(), request.matchOverrideReason());
         } else if (dimensionsChanged) {
-            matching.refreshCurrent(product);
+            // 직접 지정이 아니면 새 치수 기준 1순위 박스를 자동 적용하고, 직접 지정이면 현재 박스만 다시 검증한다.
+            matching.applyBestCandidate(product);
         }
 
         // @Version은 flush 시점에 올라가므로, 응답에 새 버전을 담으려면 먼저 flush한다.
         productRepository.flush();
         return ProductDetailResponse.from(product, matching.candidates(product));
+    }
+
+    /**
+     * 매칭 박스가 없는 활성 상품에 치수 기준 1순위 박스를 일괄 적용한다. 상품이 DB에 직접 들어온 경우를 채우는 용도다.
+     * 이미 매칭된 상품(직접 지정 포함)은 건드리지 않으므로 여러 번 호출해도 결과가 같다.
+     */
+    @Transactional
+    public MatchRecalculationResponse recalculateUnmatched(UUID warehouseId) {
+        warehouseRepository.lockById(warehouseId).orElseThrow(() -> BusinessException.notFound("센터"));
+        List<Product> targets = productRepository.findByWarehouseIdAndIsActiveTrueAndMatchedBoxSpecIsNull(warehouseId);
+        List<BoxSpec> activeBoxes = boxSpecRepository.findByWarehouseIdAndIsActiveTrue(warehouseId);
+        targets.forEach(product -> matching.applyBestCandidate(product, activeBoxes));
+        productRepository.flush();
+
+        return new MatchRecalculationResponse(targets.size(),
+                countStatus(targets, MatchStatus.MATCHED),
+                countStatus(targets, MatchStatus.REVIEW),
+                countStatus(targets, MatchStatus.UNMATCHED));
+    }
+
+    private static int countStatus(List<Product> products, MatchStatus status) {
+        return (int) products.stream().filter(product -> product.getMatchStatus() == status).count();
     }
 
     @Transactional

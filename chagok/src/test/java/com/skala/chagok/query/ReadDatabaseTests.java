@@ -62,7 +62,7 @@ class ReadDatabaseTests {
     private EntityManager em;
     private JpaRepositoryFactory repositories;
     private final UUID warehouseId = UUID.randomUUID();
-    private final ChagokProperties properties = new ChagokProperties(ZoneId.of("Asia/Seoul"), 300, new ChagokProperties.Inventory(3, 14));
+    private final ChagokProperties properties = new ChagokProperties(ZoneId.of("Asia/Seoul"), 300, new ChagokProperties.Inventory(3, 14), new ChagokProperties.BoxSize(10, 50));
 
     @BeforeAll static void database() throws Exception {
         String url = "jdbc:h2:mem:read-api;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
@@ -197,7 +197,8 @@ class ReadDatabaseTests {
                 repositories.getRepository(SupplierRepository.class), repositories.getRepository(ProductRepository.class),
                 repositories.getRepository(PurchaseOrderItemRepository.class), repositories.getRepository(ProcurementProposalItemRepository.class),
                 repositories.getRepository(ItemEventRepository.class), mock(com.skala.chagok.domain.inventory.repository.InventoryMovementRepository.class),
-                mock(com.skala.chagok.domain.product.service.ProductMatchingService.class));
+                mock(com.skala.chagok.domain.product.service.ProductMatchingService.class),
+                new com.skala.chagok.domain.box.service.BoxSizeClassifier(properties));
         var result = service.getBoxSpecs(warehouseId, null, true, null, 0, 20, null);
         assertThat(result.items()).hasSize(1);
         assertThat(result.items().getFirst().linkedProductCount()).isEqualTo(2);
