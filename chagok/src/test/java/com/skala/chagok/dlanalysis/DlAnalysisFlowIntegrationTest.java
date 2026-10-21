@@ -4,9 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import java.io.IOException;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -15,30 +12,46 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
 
-import org.junit.jupiter.api.AfterAll;
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.consumer.Consumer;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.Producer;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.clients.producer.RecordMetadata;
+import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.serialization.StringDeserializer;
+import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
+import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.test.EmbeddedKafkaBroker;
 import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.kafka.test.utils.ContainerTestUtils;
+import org.springframework.kafka.test.utils.KafkaTestUtils;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
-import com.sun.net.httpserver.HttpServer;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
- * 접수 → Kafka → 컨슈머 → DL 호출 → item_event 반영까지 한 번에 확인한다.
+ * 접수 → 요청 토픽 → (DL Worker) → 결과 토픽 → 결과 컨슈머 → item_event 반영까지 한 번에 확인한다.
  *
- * <p>DB는 로컬 PostgreSQL(compose)을 쓰고, Kafka는 내장 브로커, DL은 응답을 바꿔 끼울 수 있는 가짜 HTTP 서버다.
- * 실제 DL 모델 대신 가짜 서버를 쓰는 이유는 known/unknown/미등록 바코드 응답을 마음대로 만들기 위해서다.
- * 테스트가 만든 행은 끝날 때 지운다.
+ * <p>DB는 로컬 PostgreSQL(compose)을 쓰고, Kafka는 내장 브로커다. DL Worker 자리에는 요청 토픽에서 요청을 꺼내
+ * 결과 토픽에 JSON 문자열을 직접 보내는 가짜 Worker를 둔다. Python Worker가 보내는 것과 같은 형태(타입 헤더 없는
+ * 평범한 JSON)로 보내야 계약을 시험할 수 있기 때문이다. 테스트가 만든 행은 끝날 때 지운다.
  */
 @SpringBootTest
 @EmbeddedKafka(
@@ -47,8 +60,8 @@ import com.sun.net.httpserver.HttpServer;
 class DlAnalysisFlowIntegrationTest {
 
     private static final String BARCODE = "8809037045013";
-    private static final AtomicReference<String> DL_RESPONSE = new AtomicReference<>();
-    private static final HttpServer FAKE_DL = startFakeDl();
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+    private static final Path MEASUREMENT_LOG = createMeasurementLogPath();
 
     @TempDir
     static Path imageDir;
@@ -57,36 +70,53 @@ class DlAnalysisFlowIntegrationTest {
     private DlAnalysisAcceptService acceptService;
 
     @Autowired
-    private DlAnalysisRequestProducer producer;
-
-    @Autowired
     private JdbcTemplate jdbc;
 
     @Autowired
     private KafkaListenerEndpointRegistry listeners;
 
     @Autowired
-    private DlAnalysisRequestTopicProperties topic;
+    private EmbeddedKafkaBroker broker;
+
+    @Autowired
+    private DlAnalysisRequestTopicProperties requestTopic;
+
+    @Autowired
+    private DlAnalysisResultTopicProperties resultTopic;
+
+    @Value("${spring.kafka.consumer.group-id}")
+    private String resultGroup;
 
     private final UUID warehouseId = UUID.randomUUID();
     private final UUID boxSpecId = UUID.randomUUID();
     private final UUID productId = UUID.randomUUID();
     private final List<String> eventIds = new ArrayList<>();
 
-    private static final Path MEASUREMENT_LOG = createMeasurementLogPath();
+    private Consumer<String, String> fakeWorkerConsumer;
+    private Producer<String, String> fakeWorkerProducer;
 
     @DynamicPropertySource
-    static void dlAddress(DynamicPropertyRegistry registry) {
-        registry.add("chagok.dl.measure.base-url", () -> "http://127.0.0.1:" + FAKE_DL.getAddress().getPort());
+    static void measurementLog(DynamicPropertyRegistry registry) {
         registry.add("chagok.dl.measure.measurement-log", MEASUREMENT_LOG::toString);
     }
 
     @BeforeEach
     void waitUntilListenerOwnsAllPartitions() {
-        // 리스너가 파티션을 배정받기 전에 보낸 메시지는 배정 후에야 처리된다. 첫 테스트가 그 지연만큼 늦어
+        // 리스너가 파티션을 배정받기 전에 보낸 결과는 배정 후에야 처리된다. 첫 테스트가 그 지연만큼 늦어
         // 시간 초과로 실패하지 않도록, 배정이 끝난 뒤에 시작한다
         listeners.getListenerContainers()
-                .forEach(container -> ContainerTestUtils.waitForAssignment(container, topic.partitions()));
+                .forEach(container -> ContainerTestUtils.waitForAssignment(container, resultTopic.partitions()));
+    }
+
+    @BeforeEach
+    void startFakeWorker() {
+        Map<String, Object> consumerProps = KafkaTestUtils.consumerProps(broker, "fake-dl-worker-" + UUID.randomUUID(), false);
+        consumerProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        fakeWorkerConsumer = new DefaultKafkaConsumerFactory<>(
+                consumerProps, new StringDeserializer(), new StringDeserializer()).createConsumer();
+        fakeWorkerConsumer.subscribe(List.of(requestTopic.topic()));
+        fakeWorkerProducer = new KafkaProducer<>(
+                KafkaTestUtils.producerProps(broker), new StringSerializer(), new StringSerializer());
     }
 
     @BeforeEach
@@ -101,6 +131,12 @@ class DlAnalysisFlowIntegrationTest {
     }
 
     @AfterEach
+    void stopFakeWorker() {
+        fakeWorkerConsumer.close();
+        fakeWorkerProducer.close();
+    }
+
+    @AfterEach
     void deleteInsertedRows() {
         eventIds.forEach(id -> jdbc.update("delete from item_event where event_id = ?", id));
         jdbc.update("delete from product where id = ?", productId);
@@ -108,17 +144,14 @@ class DlAnalysisFlowIntegrationTest {
         jdbc.update("delete from warehouse where id = ?", warehouseId);
     }
 
-    @AfterAll
-    static void stopFakeDl() {
-        FAKE_DL.stop(0);
-    }
-
     @Test
-    void identifiedItemCopiesProductMatchIntoItemEvent() throws IOException {
-        DL_RESPONSE.set("{\"status\":\"known\",\"barcode\":\"" + BARCODE + "\",\"product_name\":\"테스트 상품\","
-                + "\"size\":{\"type\":\"measured\",\"w_cm\":23.9,\"d_cm\":8.0,\"h_cm\":3.4,\"volume_cm3\":650.1}}");
-
+    void identifiedItemCopiesProductMatchIntoItemEvent() throws Exception {
         String eventId = accept();
+
+        JsonNode request = awaitRequest(eventId);
+        assertThat(request.get("warehouseId").asString()).isEqualTo(warehouseId.toString());
+        assertThat(request.get("imageRefs")).hasSize(3);
+        reply(eventId, known(eventId, BARCODE));
 
         Map<String, Object> row = awaitFinished(eventId);
         assertThat(row.get("status")).isEqualTo("SUCCEEDED");
@@ -128,16 +161,17 @@ class DlAnalysisFlowIntegrationTest {
         assertThat(row.get("placement")).isNull();
         await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(measurementLine(eventId))
                 .contains("\"barcode\":\"" + BARCODE + "\"", "\"sizeType\":\"measured\"", "\"widthCm\":23.9",
-                        "\"outcome\":\"SUCCEEDED\"", "\"latencyMs\":"));
+                        "\"outcome\":\"SUCCEEDED\"", "\"latencyMs\":150"));
     }
 
     @Test
-    void acceptedRowKeepsGivenOccurredAt() throws IOException {
-        DL_RESPONSE.set("{\"status\":\"unknown\",\"barcode\":null}");
+    void acceptedRowKeepsGivenOccurredAt() throws Exception {
         Instant occurredAt = Instant.parse("2026-05-03T01:02:03Z");
 
         String eventId = acceptService.accept(warehouseId, images(), occurredAt);
         eventIds.add(eventId);
+        awaitRequest(eventId);
+        reply(eventId, unknown(eventId));
 
         assertThat(jdbc.queryForObject("select occurred_at from item_event where event_id = ?",
                 java.sql.Timestamp.class, eventId).toInstant()).isEqualTo(occurredAt);
@@ -146,42 +180,76 @@ class DlAnalysisFlowIntegrationTest {
     }
 
     @Test
-    void unknownItemEndsAsFailedWithoutProduct() throws IOException {
-        DL_RESPONSE.set("{\"status\":\"unknown\",\"barcode\":null}");
+    void unknownItemEndsAsFailedWithoutProduct() throws Exception {
+        String eventId = accept();
+        reply(eventId, unknown(eventId));
 
-        Map<String, Object> row = awaitFinished(accept());
+        Map<String, Object> row = awaitFinished(eventId);
 
         assertThat(row.get("status")).isEqualTo("FAILED");
         assertThat(row.get("product_id")).isNull();
     }
 
     @Test
-    void barcodeWithoutActiveProductEndsAsFailed() throws IOException {
-        DL_RESPONSE.set("{\"status\":\"known\",\"barcode\":\"0000000000000\"}");
+    void barcodeWithoutActiveProductEndsAsFailed() throws Exception {
+        String eventId = accept();
+        reply(eventId, known(eventId, "0000000000000"));
 
-        Map<String, Object> row = awaitFinished(accept());
+        Map<String, Object> row = awaitFinished(eventId);
 
         assertThat(row.get("status")).isEqualTo("FAILED");
         assertThat(row.get("box_spec_id")).isNull();
     }
 
     @Test
-    void orphanMessageIsDroppedAndDoesNotBlockLaterRequests() throws IOException {
-        DL_RESPONSE.set("{\"status\":\"known\",\"barcode\":\"" + BARCODE + "\"}");
-        producer.publish(DlAnalysisRequest.of(UUID.randomUUID().toString(), warehouseId.toString(), images()));
+    void workerFailureEndsAsFailedWithItsReason() throws Exception {
+        String eventId = accept();
+        reply(eventId, failed(eventId, "IMAGE_UNREADABLE"));
 
-        Map<String, Object> row = awaitFinished(accept());
-
-        assertThat(row.get("status")).isEqualTo("SUCCEEDED");
+        assertThat(awaitFinished(eventId).get("status")).isEqualTo("FAILED");
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(measurementLine(eventId))
+                .contains("\"reason\":\"IMAGE_UNREADABLE\""));
     }
 
     @Test
-    void messageArrivingBeforeItsRowIsRetriedInsteadOfDroppedAsOrphan() throws Exception {
-        DL_RESPONSE.set("{\"status\":\"known\",\"barcode\":\"" + BARCODE + "\"}");
+    void unreadableResultEndsAsFailedInsteadOfStayingPending() throws Exception {
+        String eventId = accept();
+        reply(eventId, "{\"schemaVersion\": 1, \"eventId\": ");
+
+        assertThat(awaitFinished(eventId).get("status")).isEqualTo("FAILED");
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(measurementLine(eventId))
+                .contains("\"reason\":\"INVALID_RESULT\""));
+    }
+
+    @Test
+    void duplicateResultDoesNotOverwriteFinishedJob() throws Exception {
+        String eventId = accept();
+        reply(eventId, known(eventId, BARCODE));
+        assertThat(awaitFinished(eventId).get("status")).isEqualTo("SUCCEEDED");
+
+        RecordMetadata duplicate = reply(eventId, failed(eventId, "DL_UNAVAILABLE"));
+        awaitConsumed(duplicate);
+
+        assertThat(statusOf(eventId)).isEqualTo("SUCCEEDED");
+    }
+
+    @Test
+    void orphanResultIsDroppedAndDoesNotBlockLaterResults() throws Exception {
+        String orphanId = UUID.randomUUID().toString();
+        reply(orphanId, known(orphanId, BARCODE));
+
+        String eventId = accept();
+        reply(eventId, known(eventId, BARCODE));
+
+        assertThat(awaitFinished(eventId).get("status")).isEqualTo("SUCCEEDED");
+    }
+
+    @Test
+    void resultArrivingBeforeItsRowIsRetriedInsteadOfDroppedAsOrphan() throws Exception {
         String eventId = UUID.randomUUID().toString();
         eventIds.add(eventId);
 
-        producer.publish(DlAnalysisRequest.of(eventId, warehouseId.toString(), images()));
+        reply(eventId, known(eventId, BARCODE));
         Thread.sleep(1000);
         jdbc.update("insert into item_event (event_id, occurred_at, warehouse_id, status) values (?, now(), ?, 'PENDING')",
                 eventId, warehouseId);
@@ -196,6 +264,35 @@ class DlAnalysisFlowIntegrationTest {
         return eventId;
     }
 
+    /** 가짜 Worker가 요청 토픽에서 이 작업의 요청을 꺼낸다. 앞선 테스트의 요청은 키로 걸러 낸다. */
+    private JsonNode awaitRequest(String eventId) {
+        long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+        while (System.nanoTime() < deadline) {
+            for (ConsumerRecord<String, String> record : fakeWorkerConsumer.poll(Duration.ofMillis(200))) {
+                if (eventId.equals(record.key())) {
+                    return JSON.readTree(record.value());
+                }
+            }
+        }
+        throw new AssertionError("요청 토픽에서 요청을 찾지 못했다: eventId=" + eventId);
+    }
+
+    private RecordMetadata reply(String eventId, String json) throws Exception {
+        return fakeWorkerProducer.send(new ProducerRecord<>(resultTopic.topic(), eventId, json)).get();
+    }
+
+    /** 결과 컨슈머 그룹의 커밋 오프셋이 이 메시지를 지났는지로 처리 완료를 확인한다. 상태가 바뀌지 않는 경우에 쓴다. */
+    private void awaitConsumed(RecordMetadata metadata) {
+        TopicPartition partition = new TopicPartition(metadata.topic(), metadata.partition());
+        try (Admin admin = Admin.create(Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, broker.getBrokersAsString()))) {
+            await().atMost(Duration.ofSeconds(20)).until(() -> {
+                OffsetAndMetadata committed = admin.listConsumerGroupOffsets(resultGroup)
+                        .partitionsToOffsetAndMetadata().get().get(partition);
+                return committed != null && committed.offset() > metadata.offset();
+            });
+        }
+    }
+
     private Map<String, Object> awaitFinished(String eventId) {
         await().atMost(Duration.ofSeconds(20)).until(() -> !"PENDING".equals(statusOf(eventId)));
         return jdbc.queryForMap(
@@ -205,6 +302,28 @@ class DlAnalysisFlowIntegrationTest {
 
     private String statusOf(String eventId) {
         return jdbc.queryForObject("select status from item_event where event_id = ?", String.class, eventId);
+    }
+
+    private String known(String eventId, String barcode) {
+        return result(eventId, "\"outcome\":\"MEASURED\",\"dlStatus\":\"known\",\"barcode\":\"" + barcode + "\","
+                + "\"size\":{\"type\":\"measured\",\"widthCm\":23.9,\"depthCm\":8.0,\"heightCm\":3.4,\"volumeCm3\":650.1},"
+                + "\"failureReason\":null,\"failureMessage\":null");
+    }
+
+    private String unknown(String eventId) {
+        return result(eventId, "\"outcome\":\"MEASURED\",\"dlStatus\":\"unknown\",\"barcode\":null,"
+                + "\"size\":{\"type\":\"estimated\",\"widthCm\":26.2,\"depthCm\":13.2,\"heightCm\":2.9,\"volumeCm3\":997.1},"
+                + "\"failureReason\":null,\"failureMessage\":null");
+    }
+
+    private String failed(String eventId, String reason) {
+        return result(eventId, "\"outcome\":\"FAILED\",\"dlStatus\":null,\"barcode\":null,\"size\":null,"
+                + "\"failureReason\":\"" + reason + "\",\"failureMessage\":\"테스트 실패\"");
+    }
+
+    private String result(String eventId, String body) {
+        return "{\"schemaVersion\":1,\"eventId\":\"" + eventId + "\",\"warehouseId\":\"" + warehouseId + "\","
+                + body + ",\"latencyMs\":150,\"measuredAt\":\"2026-10-21T00:00:00Z\"}";
     }
 
     private static String measurementLine(String eventId) throws IOException {
@@ -235,24 +354,5 @@ class DlAnalysisFlowIntegrationTest {
             refs.add(image.toString());
         }
         return refs;
-    }
-
-    private static HttpServer startFakeDl() {
-        try {
-            HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-            server.createContext("/measure", exchange -> {
-                exchange.getRequestBody().readAllBytes();
-                byte[] body = DL_RESPONSE.get().getBytes(StandardCharsets.UTF_8);
-                exchange.getResponseHeaders().add("Content-Type", "application/json");
-                exchange.sendResponseHeaders(200, body.length);
-                try (OutputStream out = exchange.getResponseBody()) {
-                    out.write(body);
-                }
-            });
-            server.start();
-            return server;
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
-        }
     }
 }

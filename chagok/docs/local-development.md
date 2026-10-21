@@ -58,8 +58,9 @@ postgres-data와 kafka-data 볼륨에 데이터를 보존한다.
 첫 Spring 기동 시 pgvector 확장을 활성화하고 개발 설정 ddl-auto=update로 테이블을 생성·보완한다.
 기본 Spring 주소는 http://localhost:8080 이다.
 `GET /actuator/health`로 상태를 확인할 수 있다.
-실제 DL 서버가 없어도 전체 테스트는 가짜 DL HTTP 서버와 내장 Kafka를 사용해 분석 흐름을 검증한다.
-실제 사진 분석을 실행할 때는 별도로 DL 서버를 띄우고 DL_BASE_URL을 지정해야 한다.
+실제 DL Worker가 없어도 전체 테스트는 내장 Kafka와 가짜 Worker(요청 토픽을 읽고 결과 토픽에 응답)로 분석 흐름을 검증한다.
+실제 사진 분석을 실행할 때는 Spring을 먼저 띄워 요청·결과 토픽을 만든 뒤, chagokAI/item-dimension-api에서 `.venv/bin/python -m app.worker`로 Worker를 띄운다.
+메시지 형식과 처리 규칙은 [DL 분석 Kafka 메시지 계약](dl-kafka-contract.md)을 따른다.
 
 DB 없이 가능한 검증만 실행하려면 `./gradlew offlineTest`를 사용한다.
 ## 정기 작업과 수동 재계산
