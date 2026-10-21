@@ -159,6 +159,20 @@ pendingCount는 PENDING, inProgressCount는 APPROVED+IN_TRANSIT이다.
 본인에게 온 알림만 조회하며 다른 센터 소속이면 403이다. 기존 제목 없는 알림은 message를 title에도 제공한다.
 CurrentUserProvider는 세션 사용자 ID로 본인을 조회한다. 명시적인 인증 비활성 테스트에서만 기존 첫 사용자 방식을 사용한다.
 
+## NOTI-API-02~03: 알림 읽음 처리
+
+`PATCH W/notifications/{notificationId}/read`
+
+- 응답은 목록 항목과 같은 형식(id, category, title, message, link, createdAt, readAt, unread)이다
+- 이미 읽은 알림은 처음 읽은 시각을 유지하고 현재 상태를 그대로 돌려준다. 같은 요청을 반복해도 결과가 같다
+- 본인 알림이 아니거나 다른 센터의 알림이면 404다. 존재 여부를 알리지 않기 위해 403이 아닌 404로 응답한다
+
+`POST W/notifications/read-all`
+
+- 본문 `{through?: datetime}`. through를 주면 그 시각 이전에 생성된 미읽음만 처리하고, 생략하거나 본문이 없으면 미읽음 전체가 대상이다
+- 목록을 불러온 뒤 도착한 새 알림까지 지우지 않으려면 목록 조회 시각을 through로 보낸다
+- updatedCount는 이번 요청으로 바뀐 건수이며 이미 읽은 알림은 세지 않는다. unreadCount는 처리 후 남은 수로 조회와 같은 기준(본인·해당 센터 전체)이다
+
 ## JOB-API-01: 작업 상태
 
 `GET W/jobs/{jobId}`:
