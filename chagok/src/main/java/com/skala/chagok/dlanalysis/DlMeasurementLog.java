@@ -6,7 +6,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -29,7 +28,7 @@ class DlMeasurementLog {
     private final Path path;
     private final JsonMapper mapper = JsonMapper.builder().build();
 
-    DlMeasurementLog(DlMeasureClientProperties properties) {
+    DlMeasurementLog(DlMeasurementLogProperties properties) {
         this.path = properties.measurementLog();
         if (path != null && path.getParent() != null) {
             try {
@@ -41,20 +40,22 @@ class DlMeasurementLog {
     }
 
     /**
-     * @param result DL 응답. DL이 거부했거나 호출하지 못했으면 null
-     * @param latencyMillis DL 호출 소요 시간. 호출하지 못했으면 null
+     * 키 이름은 결과 토픽 도입 전 기록과 같다. 일괄 측정 결과를 합치는 스크립트가 이 키를 읽는다.
+     * measuredAt·latencyMs는 Worker가 잰 값이라, Spring이 DL을 직접 부르던 때의 HTTP 호출 시간과는 범위가 다르다.
+     *
+     * @param result Worker가 보낸 결과. 메시지를 읽지 못했으면 null
      */
-    synchronized void write(String eventId, DlMeasureResult result, Long latencyMillis, DlAnalysisOutcome outcome) {
+    synchronized void write(String eventId, DlAnalysisResult result, DlAnalysisOutcome outcome) {
         if (path == null) {
             return;
         }
         Map<String, Object> line = new LinkedHashMap<>();
         line.put("eventId", eventId);
-        line.put("measuredAt", Instant.now().toString());
-        line.put("latencyMs", latencyMillis);
-        line.put("dlStatus", result == null ? null : result.status());
+        line.put("measuredAt", result == null ? null : result.measuredAt());
+        line.put("latencyMs", result == null ? null : result.latencyMs());
+        line.put("dlStatus", result == null ? null : result.dlStatus());
         line.put("barcode", result == null ? null : result.barcode());
-        DlMeasureResult.Size size = result == null ? null : result.size();
+        DlAnalysisResult.Size size = result == null ? null : result.size();
         line.put("sizeType", size == null ? null : size.type());
         line.put("widthCm", size == null ? null : size.widthCm());
         line.put("depthCm", size == null ? null : size.depthCm());
@@ -62,6 +63,7 @@ class DlMeasurementLog {
         line.put("volumeCm3", size == null ? null : size.volumeCm3());
         line.put("outcome", outcome.status() == null ? "SKIPPED" : outcome.status().name());
         line.put("reason", outcome.reason() == null ? null : outcome.reason().name());
+        line.put("failureMessage", result == null ? null : result.failureMessage());
         try {
             Files.writeString(path, mapper.writeValueAsString(line) + "\n", StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
