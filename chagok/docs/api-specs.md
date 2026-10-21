@@ -2,7 +2,7 @@
 
 [x] 구현, [ ] 미구현. 응답 필드와 집계 기준은 [조회 API 응답 계약](read-api-contracts.md)을 참고한다.
 
-와이어프레임의 Spring 업무 흐름을 구현한다. 공급사 조회·새로고침 정책 조회·알림 읽음 처리 두 개는 직접 구현용으로 남겨둔다.
+와이어프레임의 Spring 업무 흐름을 구현한다. 공급사 조회·새로고침 정책 조회는 직접 구현용으로 남겨둔다.
 세션 로그인·센터/역할 검증, 입고·실사 조정, 공급사별 발주 초안·수정·승인·부분 입고를 제공한다.
 분석 작업 POST·재시도·정기 실행은 OBSERVATION_BASELINE 방식의 참고 계산이다.
 로그인·CSRF 토큰 조회·health 외 API는 로그인 필요. 조회·로그아웃·본인 알림 읽음은 VIEWER 이상,
@@ -32,8 +32,8 @@
 - [x] **HIST-API-02** — `GET /api/v1/warehouses/{warehouseId}/purchase-orders/{purchaseOrderId}` — 없음 → 200 PurchaseOrder / HIST-04~06
 
 - [x] **NOTI-API-01** — `GET /api/v1/warehouses/{warehouseId}/notifications` — category?, unreadOnly?, 페이지; sort createdAt,desc → 200 NotificationPage / NOTI-01~02
-- [ ] **NOTI-API-02** — `PATCH /api/v1/warehouses/{warehouseId}/notifications/{notificationId}/read` — 없음 → 200 Notification / NOTI-03~04 **직접 구현용으로 남김**
-- [ ] **NOTI-API-03** — `POST /api/v1/warehouses/{warehouseId}/notifications/read-all` — {through: datetime} → 200 {updatedCount,unreadCount} / NOTI-03 **직접 구현용으로 남김**
+- [x] **NOTI-API-02** — `PATCH /api/v1/warehouses/{warehouseId}/notifications/{notificationId}/read` — 없음 → 200 Notification / NOTI-03~04
+- [x] **NOTI-API-03** — `POST /api/v1/warehouses/{warehouseId}/notifications/read-all` — {through?: datetime} → 200 {updatedCount,unreadCount} / NOTI-03
 - [x] **JOB-API-01** — `GET /api/v1/warehouses/{warehouseId}/jobs/{jobId}` — 없음 → 200 Job / 자동 생성 상태 조회
 - [x] **JOB-API-02** — `POST /api/v1/warehouses/{warehouseId}/ai-jobs` — {targetMonth, type} → 202 Job + Location, type=PROCUREMENT_AND_COST
 - [x] **JOB-API-03** — `POST /api/v1/warehouses/{warehouseId}/jobs/{jobId}/retry` — {expectedVersion} → 202 Job + Location, 새 실행 시도 생성

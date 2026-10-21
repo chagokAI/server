@@ -59,4 +59,11 @@ public class Notification {
     @CreationTimestamp
     @Column(name = "created_at", columnDefinition = "timestamptz")
     private Instant createdAt;
+
+    /** 처음 읽은 시각만 남긴다. 이미 읽은 알림을 다시 요청해도 시각을 덮어쓰지 않는다. */
+    public void markRead(Instant now) {
+        if (readAt == null) {
+            this.readAt = now;
+        }
+    }
 }
