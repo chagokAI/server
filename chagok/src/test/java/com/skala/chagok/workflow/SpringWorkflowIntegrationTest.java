@@ -350,6 +350,13 @@ class SpringWorkflowIntegrationTest {
         assertThat(jdbc.queryForObject("select on_hand_qty from box_spec where id=?", Integer.class, box)).isEqualTo(100);
     }
 
+    @Test void barcodeAcceptsAlphanumericIdentifiersAndRejectsOtherCharacters() throws Exception {
+        patchJson("/products/" + product, Map.of("expectedVersion", 0, "barcode", "NCW2S06390"), 200);
+        assertThat(jdbc.queryForObject("select barcode from product where id=?", String.class, product)).isEqualTo("NCW2S06390");
+        patchJson("/products/" + product, Map.of("expectedVersion", 1, "barcode", "NCW-2S06390"), 400);
+        patchJson("/products/" + product, Map.of("expectedVersion", 1, "barcode", "1".repeat(31)), 400);
+    }
+
     @Test void barcodeUniquenessIsCheckedAndZeroQuantityCannotCreateAnOrder() throws Exception {
         patchJson("/products/" + product, Map.of("expectedVersion", 0, "barcode", "000123"), 200);
         UUID another = UUID.randomUUID();
