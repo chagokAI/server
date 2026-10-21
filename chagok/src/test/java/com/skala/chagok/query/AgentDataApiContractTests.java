@@ -25,7 +25,8 @@ class AgentDataApiContractTests {
     private MockMvc mvc;
 
     @BeforeEach void setup() {
-        mvc = MockMvcBuilders.standaloneSetup(new AgentDataController(service, responses))
+        mvc = MockMvcBuilders.standaloneSetup(new AgentDataController(service, responses, new com.skala.chagok.global.config.MatchingProperties(
+                new com.skala.chagok.global.config.MatchingProperties.Tilted(true, 3))))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
     }
 
@@ -70,5 +71,11 @@ class AgentDataApiContractTests {
                         .content("{\"targetMonth\":\"2026-11\",\"summary\":{},\"generatedAt\":null,\"dataAsOf\":null,"
                                 + "\"items\":[]}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test void matchingPolicyReturnsServerSettings() throws Exception {
+        mvc.perform(get("/internal/v1/matching-policy"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.tiltedEnabled").value(true))
+                .andExpect(jsonPath("$.data.tiltedClearanceMm").value(3));
     }
 }
