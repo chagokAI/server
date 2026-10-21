@@ -21,7 +21,9 @@ public record ProductUpdateRequest(
         @Size(min = 1, max = 500) String imageUrl,
         UUID boxSpecId,
         @Size(max = 200) String matchOverrideReason,
-        @jakarta.validation.constraints.Pattern(regexp = "[0-9]{1,30}") String barcode,
+        // 입고 상품 일부(패션 상품 등)는 원천 식별자가 영문·숫자 혼합(예: NCW2S06390)이고 DL도 그 값을 바코드로 돌려준다.
+        // 숫자만 받으면 이런 상품을 화면에서 수정할 때 400이 나므로 영문·숫자 1~30자를 허용한다
+        @jakarta.validation.constraints.Pattern(regexp = "[0-9A-Za-z]{1,30}") String barcode,
         @jakarta.validation.constraints.PositiveOrZero Integer weightG
 ) {
 }
