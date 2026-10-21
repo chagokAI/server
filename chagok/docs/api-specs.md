@@ -13,7 +13,7 @@
 - [x] **AUTH-API-03** — `POST /api/v1/auth/logout` — 없음 → 204, 세션 종료 / AUTH-04
 
 - [ ] **COMMON-API-02** — `GET /api/v1/warehouses/{warehouseId}/suppliers` — keyword? → 200 Supplier[] / SPEC-03, PO-06 **직접 구현용으로 남김**
-- [ ] **COMMON-API-03** — `GET /api/v1/warehouses/{warehouseId}/refresh-policy` — 없음 → 200 RefreshPolicy / COM-02 **직접 구현용으로 남김**
+- [x] **COMMON-API-03** — `GET /api/v1/warehouses/{warehouseId}/refresh-policy` — 없음 → 200 RefreshPolicy / COM-02 (재조회 주기·정기 배치 일정)
 
 - [x] **DASH-API-01** — `GET /api/v1/warehouses/{warehouseId}/dashboard` — targetMonth? 기본 다음 달 → 200 Dashboard / DASH-01,04~10
 - [x] **DASH-API-02** — `GET /api/v1/warehouses/{warehouseId}/simulation-state` — limit? 기본 100, 최대 500; 최근 관측 순, boxId로 동률 정렬 → 200 Scene / DASH-02~03
