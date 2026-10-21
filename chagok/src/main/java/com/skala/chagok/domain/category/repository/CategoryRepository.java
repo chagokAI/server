@@ -10,7 +10,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface CategoryRepository extends JpaRepository<Category, UUID> {
 
-    List<Category> findByWarehouseIdOrderByNameAscIdAsc(UUID warehouseId);
+    List<Category> findByWarehouseId(UUID warehouseId);
 
     Optional<Category> findByIdAndWarehouseId(UUID id, UUID warehouseId);
 }

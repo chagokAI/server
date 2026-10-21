@@ -153,6 +153,14 @@ public class Product {
                 ? MatchStatus.MATCHED : MatchStatus.REVIEW;
     }
 
+    /** 치수 기준 1순위 박스를 자동으로 저장한다. 직접 지정 사유는 비우고, 상태는 refreshMatch 기준을 따른다. */
+    public void applyAutoMatch(BoxSpec boxSpec, BigDecimal fillRatePct, String source) {
+        this.matchedBoxSpec = boxSpec;
+        this.matchSource = source;
+        this.matchOverrideReason = null;
+        refreshMatch(fillRatePct);
+    }
+
     public void clearMatch() {
         this.matchedBoxSpec = null;
         this.fillRatePct = null;

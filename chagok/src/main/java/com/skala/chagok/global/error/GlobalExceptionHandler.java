@@ -4,7 +4,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.persistence.EntityNotFoundException;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -20,6 +23,10 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.exc.InvalidFormatException;
+import tools.jackson.databind.exc.UnrecognizedPropertyException;
 
 /**
  * 모든 오류를 명세의 {error: {code, message, fieldErrors, requestId}} 형식으로 바꾼다.
@@ -48,7 +55,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ErrorResponse> handleBusiness(BusinessException e, HttpServletRequest request) {
-        return build(e.getErrorCode(), e.getMessage(), e.getFieldErrors(), request);
+        return build(e.getErrorCode().getStatus(), e.getErrorCode(), e.getMessage(), e.getFieldErrors(),
+                e.getDetails(), request);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -88,8 +96,25 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ErrorResponse> handleUnreadable(HttpMessageNotReadableException e,
                                                           HttpServletRequest request) {
-        // 형식 오류와 정의되지 않은 필드 입력이 모두 여기로 온다.
-        return build(ErrorCode.VALIDATION_ERROR, "요청 본문을 해석할 수 없습니다.", List.of(), request);
+        // 형식 오류와 정의되지 않은 필드 입력이 모두 여기로 온다. 원인 필드를 알 수 있으면 fieldErrors로 알려준다.
+        return build(ErrorCode.VALIDATION_ERROR, "요청 본문을 해석할 수 없습니다.", unreadableFieldErrors(e), request);
+    }
+
+    private static List<ErrorResponse.FieldError> unreadableFieldErrors(HttpMessageNotReadableException e) {
+        if (!(e.getMostSpecificCause() instanceof JacksonException cause) || cause.getPath().isEmpty()) {
+            return List.of();
+        }
+        String field = cause.getPath().stream()
+                .map(JacksonException.Reference::getPropertyName)
+                .filter(Objects::nonNull)
+                .collect(Collectors.joining("."));
+        if (field.isEmpty()) {
+            return List.of();
+        }
+        String message = cause instanceof UnrecognizedPropertyException ? "정의되지 않은 필드입니다."
+                : cause instanceof InvalidFormatException ? "허용되지 않는 값입니다."
+                : "형식이 올바르지 않습니다.";
+        return List.of(new ErrorResponse.FieldError(field, message));
     }
 
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
@@ -138,12 +163,18 @@ public class GlobalExceptionHandler {
     private ResponseEntity<ErrorResponse> build(HttpStatusCode status, ErrorCode code, String message,
                                                 List<ErrorResponse.FieldError> fieldErrors,
                                                 HttpServletRequest request) {
+        return build(status, code, message, fieldErrors, null, request);
+    }
+
+    private ResponseEntity<ErrorResponse> build(HttpStatusCode status, ErrorCode code, String message,
+                                                List<ErrorResponse.FieldError> fieldErrors,
+                                                Map<String, Object> details, HttpServletRequest request) {
         String requestId = request.getHeader(REQUEST_ID_HEADER);
         if (requestId == null || requestId.isBlank()) {
             requestId = "req-" + UUID.randomUUID();
         }
         String resolvedMessage = message != null ? message : code.getDefaultMessage();
         return ResponseEntity.status(status)
-                .body(ErrorResponse.of(code, resolvedMessage, fieldErrors, requestId));
+                .body(ErrorResponse.of(code, resolvedMessage, fieldErrors, requestId, details));
     }
 }

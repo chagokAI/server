@@ -13,22 +13,62 @@ import org.springframework.stereotype.Service;
 public class ProductMatchingService {
     private final BoxSpecRepository boxes;
 
+    /** 자동 매칭의 match_source. 후보의 source와 같다. */
+    public static final String SOURCE_DIMENSIONS = "DIMENSIONS";
+    private static final String SOURCE_MANUAL = "MANUAL";
+
     public List<MatchCandidateResponse> candidates(Product product) {
-        int[] dims = dimensions(product.getWidthMm(), product.getDepthMm(), product.getHeightMm());
-        if (dims == null) return List.of();
-        var sorted = boxes.findByWarehouseIdAndIsActiveTrue(product.getWarehouse().getId()).stream()
-                .filter(box -> fits(product, box))
-                .map(box -> new MatchCandidateResponse(BoxSnapshot.from(box), rate(product, box), false,
-                        product.getMatchedBoxSpec() != null && product.getMatchedBoxSpec().getId().equals(box.getId()), "DIMENSIONS"))
-                .sorted(Comparator.comparing(MatchCandidateResponse::fillRatePct).reversed()
-                        .thenComparing(MatchCandidateResponse::boxSpec, BoxSnapshot.ORDER)).toList();
+        return candidates(product, activeBoxes(product));
+    }
+
+    /** 후보 목록. 1순위(recommended)는 applyBestCandidate가 저장하는 박스와 항상 같다. */
+    public List<MatchCandidateResponse> candidates(Product product, List<BoxSpec> activeBoxes) {
+        var ranked = ranked(product, activeBoxes);
         var result = new ArrayList<MatchCandidateResponse>();
-        for (int i = 0; i < sorted.size(); i++) {
-            var candidate = sorted.get(i);
-            result.add(new MatchCandidateResponse(candidate.boxSpec(), candidate.fillRatePct(), i == 0,
-                    candidate.selected(), candidate.source()));
+        for (int i = 0; i < ranked.size(); i++) {
+            var box = ranked.get(i);
+            result.add(new MatchCandidateResponse(BoxSnapshot.from(box), rate(product, box), i == 0,
+                    product.getMatchedBoxSpec() != null && product.getMatchedBoxSpec().getId().equals(box.getId()),
+                    SOURCE_DIMENSIONS));
         }
         return result;
+    }
+
+    public void applyBestCandidate(Product product) {
+        applyBestCandidate(product, activeBoxes(product));
+    }
+
+    /**
+     * 후보 1순위를 상품 매칭으로 저장한다(match_source=DIMENSIONS, 상태는 refreshMatch의 85% 기준).
+     * 운영자가 직접 지정한 박스(MANUAL)는 바꾸지 않고 현재 박스만 다시 검증한다. 들어가는 박스가 없으면 UNMATCHED.
+     */
+    public void applyBestCandidate(Product product, List<BoxSpec> activeBoxes) {
+        if (SOURCE_MANUAL.equals(product.getMatchSource())) {
+            refreshCurrent(product);
+            return;
+        }
+        var ranked = ranked(product, activeBoxes);
+        if (ranked.isEmpty()) {
+            product.clearMatch();
+            return;
+        }
+        var best = ranked.getFirst();
+        product.applyAutoMatch(best, rate(product, best), SOURCE_DIMENSIONS);
+    }
+
+    /** 같은 센터의 활성 박스. 일괄 재매칭은 한 번 읽어 여러 상품에 재사용한다. */
+    public List<BoxSpec> activeBoxes(Product product) {
+        return boxes.findByWarehouseIdAndIsActiveTrue(product.getWarehouse().getId());
+    }
+
+    /** 들어가는 박스를 충전율 내림차순, 동률은 박스 코드 순(BoxSnapshot.ORDER)으로 정렬한다. */
+    private List<BoxSpec> ranked(Product product, List<BoxSpec> activeBoxes) {
+        if (dimensions(product.getWidthMm(), product.getDepthMm(), product.getHeightMm()) == null) return List.of();
+        return activeBoxes.stream()
+                .filter(box -> fits(product, box))
+                .sorted(Comparator.comparing((BoxSpec box) -> rate(product, box)).reversed()
+                        .thenComparing(BoxSnapshot::from, BoxSnapshot.ORDER))
+                .toList();
     }
 
     public void refreshCurrent(Product product) {

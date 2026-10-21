@@ -10,6 +10,7 @@ import com.skala.chagok.domain.box.repository.BoxSpecSpecs;
 import com.skala.chagok.domain.event.repository.ItemEventRepository;
 import com.skala.chagok.domain.procurement.repository.ProcurementProposalItemRepository;
 import com.skala.chagok.domain.product.repository.ProductRepository;
+import com.skala.chagok.domain.purchase.entity.PurchaseOrderStatus;
 import com.skala.chagok.domain.purchase.repository.PurchaseOrderItemRepository;
 import com.skala.chagok.domain.supplier.entity.Supplier;
 import com.skala.chagok.domain.supplier.repository.SupplierRepository;
@@ -21,6 +22,7 @@ import com.skala.chagok.global.response.PageResponse;
 import com.skala.chagok.global.web.PageRequests;
 import com.skala.chagok.global.web.Specs;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -41,6 +43,9 @@ public class BoxSpecService {
 
     private static final Map<String, String> SORTS = Map.of("boxCode", "code");
     private static final String DEFAULT_SORT = "boxCode,asc";
+    /** 아직 입고가 끝나지 않은 발주 상태. 삭제 불가 모달의 "진행 중 발주"에 쓴다. */
+    private static final List<PurchaseOrderStatus> OPEN_PURCHASE_ORDER_STATUSES = List.of(
+            PurchaseOrderStatus.PENDING, PurchaseOrderStatus.APPROVED, PurchaseOrderStatus.IN_TRANSIT);
 
     private final BoxSpecRepository boxSpecRepository;
     private final WarehouseRepository warehouseRepository;
@@ -51,6 +56,7 @@ public class BoxSpecService {
     private final ItemEventRepository itemEventRepository;
     private final com.skala.chagok.domain.inventory.repository.InventoryMovementRepository movements;
     private final com.skala.chagok.domain.product.service.ProductMatchingService matching;
+    private final BoxSizeClassifier sizeClassifier;
 
     public BoxSpecPageResponse getBoxSpecs(UUID warehouseId, String keyword, Boolean active,
                                                      Boolean custom, int page, int size, String sort) {
@@ -102,11 +108,12 @@ public class BoxSpecService {
                 .warehouse(warehouse)
                 .code(request.code())
                 .name(request.name())
-                .sizeClass(request.sizeClass().charAt(0))
+                .sizeClass(sizeClassifier.classify(
+                        request.innerWidthMm(), request.innerDepthMm(), request.innerHeightMm()))
                 .innerWidthMm(request.innerWidthMm())
                 .innerDepthMm(request.innerDepthMm())
                 .innerHeightMm(request.innerHeightMm())
-                .material(request.material())
+                .material(request.material().name())
                 .supplier(findSupplier(warehouseId, request.supplierId()))
                 .unitPriceKrw(request.unitPriceKrw())
                 .isCustom(request.isCustom())
@@ -131,21 +138,27 @@ public class BoxSpecService {
             throw BusinessException.invalidField("code", "이미 사용 중인 박스 코드입니다.");
         }
 
+        boolean dimensionsChanged = request.innerWidthMm() != null || request.innerDepthMm() != null
+                || request.innerHeightMm() != null;
+        Character sizeClass = dimensionsChanged ? classifyOrNull(
+                orElse(request.innerWidthMm(), boxSpec.getInnerWidthMm()),
+                orElse(request.innerDepthMm(), boxSpec.getInnerDepthMm()),
+                orElse(request.innerHeightMm(), boxSpec.getInnerHeightMm())) : null;
+
         boxSpec.update(
                 request.code(),
                 request.name(),
-                request.sizeClass() == null ? null : request.sizeClass().charAt(0),
+                sizeClass,
                 request.innerWidthMm(),
                 request.innerDepthMm(),
                 request.innerHeightMm(),
-                request.material(),
+                request.material() == null ? null : request.material().name(),
                 findSupplier(warehouseId, request.supplierId()),
                 request.unitPriceKrw(),
                 request.isCustom(),
                 request.isActive(),
                 request.description());
-        if (request.innerWidthMm() != null || request.innerDepthMm() != null || request.innerHeightMm() != null
-                || request.isActive() != null) {
+        if (dimensionsChanged || request.isActive() != null) {
             productRepository.findByMatchedBoxSpecIdAndIsActiveTrue(boxSpecId).forEach(matching::refreshCurrent);
             productRepository.flush();
         }
@@ -154,22 +167,39 @@ public class BoxSpecService {
     }
 
     /**
-     * 상품 매칭·발주·제안·이벤트에서 참조하지 않고 재고가 없을 때만 삭제한다.
-     * 상품과 달리 하드 삭제다. 사용 중인 규격을 숨기고 싶으면 PATCH로 isActive=false 처리한다.
+     * 미사용(is_active=false)이고, 상품 매칭·발주·제안·이벤트·입고/실사 이력에서 참조하지 않고, 재고가 없을 때만 삭제한다.
+     * 상품과 달리 하드 삭제다. 막히면 409와 함께 삭제 불가 모달(06-2)에 보여줄 사유를 details로 내려준다.
      */
     @Transactional
     public void deleteBoxSpec(UUID warehouseId, UUID boxSpecId, Integer expectedVersion) {
         BoxSpec boxSpec = findBoxSpec(warehouseId, boxSpecId);
         checkVersion(boxSpec.getVersion(), expectedVersion);
 
-        boolean referenced = productRepository.existsByMatchedBoxSpecId(boxSpecId)
+        boolean active = Boolean.TRUE.equals(boxSpec.getIsActive());
+        long linkedProductCount = linkedProductCounts(warehouseId).getOrDefault(boxSpecId, 0L);
+        List<String> openPoNos = purchaseOrderItemRepository
+                .findPoNosByBoxSpecIdAndStatusIn(boxSpecId, OPEN_PURCHASE_ORDER_STATUSES).stream()
+                .sorted()
+                .toList();
+        int onHandQty = boxSpec.getOnHandQty() == null ? 0 : boxSpec.getOnHandQty();
+        // 비활성 상품의 매칭·완료된 발주·제안·이벤트·입고 이력도 FK로 참조하므로 실제 삭제를 막는다.
+        boolean hasHistory = productRepository.existsByMatchedBoxSpecId(boxSpecId)
                 || purchaseOrderItemRepository.existsByBoxSpecId(boxSpecId)
                 || procurementProposalItemRepository.existsByBoxSpecId(boxSpecId)
                 || itemEventRepository.existsByBoxSpecId(boxSpecId)
                 || movements.existsByBoxSpecId(boxSpecId);
-        boolean hasStock = boxSpec.getOnHandQty() != null && boxSpec.getOnHandQty() > 0;
-        if (Boolean.TRUE.equals(boxSpec.getIsActive()) || referenced || hasStock) {
-            throw new BusinessException(ErrorCode.REFERENCED_SPEC);
+
+        if (active || hasHistory || onHandQty > 0) {
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("active", active);
+            details.put("linkedProductCount", linkedProductCount);
+            details.put("openPurchaseOrderNos", openPoNos);
+            details.put("onHandQty", onHandQty);
+            details.put("hasHistory", hasHistory);
+            String message = active
+                    ? "사용 중인 규격은 삭제할 수 없습니다. 연결을 해제하고 미사용으로 바꾼 뒤 삭제하세요."
+                    : ErrorCode.REFERENCED_SPEC.getDefaultMessage();
+            throw BusinessException.withDetails(ErrorCode.REFERENCED_SPEC, message, details);
         }
         boxSpecRepository.delete(boxSpec);
     }
@@ -192,6 +222,18 @@ public class BoxSpecService {
         if (!warehouseRepository.existsById(warehouseId)) {
             throw BusinessException.notFound("센터");
         }
+    }
+
+    private static Integer orElse(Integer value, Integer fallback) {
+        return value != null ? value : fallback;
+    }
+
+    /** 기존 규격의 치수가 비어 있으면 분류할 수 없으므로 크기 분류를 그대로 둔다(null = 변경 안 함). */
+    private Character classifyOrNull(Integer widthMm, Integer depthMm, Integer heightMm) {
+        if (widthMm == null || depthMm == null || heightMm == null) {
+            return null;
+        }
+        return sizeClassifier.classify(widthMm, depthMm, heightMm);
     }
 
     /** ProductMatchService.checkVersion과 같은 이유로 expectedVersion을 직접 비교한다. */

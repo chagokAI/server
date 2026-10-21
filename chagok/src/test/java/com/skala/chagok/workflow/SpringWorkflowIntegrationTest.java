@@ -111,13 +111,122 @@ class SpringWorkflowIntegrationTest {
     }
 
     @Test void newSpecHasExplicitStockDefaultsAndRequiresAUnitPrice() throws Exception {
-        var input = new HashMap<String, Object>(Map.of("code", "M-1", "name", "중형", "sizeClass", "M", "innerWidthMm", 300,
+        var input = new HashMap<String, Object>(Map.of("code", "M-1", "name", "중형", "material", "B", "innerWidthMm", 300,
                 "innerDepthMm", 200, "innerHeightMm", 100, "isCustom", false));
         postJson("/box-specs", input, 400);
         input.put("unitPriceKrw", 250); input.put("isActive", false);
         var created = postJson("/box-specs", input, 201);
         assertThat(created.path("isActive").asBoolean()).isFalse();
         assertThat(jdbc.queryForObject("select on_hand_qty from box_spec where id=?", Integer.class, UUID.fromString(created.path("id").asText()))).isZero();
+    }
+
+    JsonNode errorOf(org.springframework.test.web.servlet.ResultActions result) throws Exception {
+        return json.readTree(result.andReturn().getResponse().getContentAsString()).path("error");
+    }
+
+    @Test void newSpecDerivesSizeClassFromInnerVolumeAndStoresMaterialCode() throws Exception {
+        var created = postJson("/box-specs", Map.of("code", "N036호", "name", "소형", "material", "BA", "innerWidthMm", 300,
+                "innerDepthMm", 200, "innerHeightMm", 100, "isCustom", false, "unitPriceKrw", 136), 201);
+        assertThat(created.path("sizeClass").asText()).isEqualTo("S");
+        assertThat(created.path("material").asText()).isEqualTo("BA");
+        assertThat(created.path("materialLabel").asText()).isEqualTo("골판지 BA골");
+        var updated = patchJson("/box-specs/" + created.path("id").asText(), Map.of("expectedVersion", 0,
+                "innerWidthMm", 500, "innerDepthMm", 400, "innerHeightMm", 350), 200);
+        assertThat(updated.path("sizeClass").asText()).isEqualTo("L");
+    }
+
+    @Test void unknownMaterialAndClientSizeClassAreRejectedWithTheField() throws Exception {
+        var input = new HashMap<String, Object>(Map.of("code", "X-1", "name", "x", "material", "Z", "innerWidthMm", 100,
+                "innerDepthMm", 100, "innerHeightMm", 100, "isCustom", false, "unitPriceKrw", 100));
+        var error = errorOf(mvc.perform(post(base() + "/box-specs").contentType("application/json")
+                .content(json.writeValueAsString(input))).andExpect(status().isBadRequest()));
+        assertThat(error.path("fieldErrors").get(0).path("field").asText()).isEqualTo("material");
+        input.put("material", "B"); input.put("sizeClass", "M");
+        error = errorOf(mvc.perform(post(base() + "/box-specs").contentType("application/json")
+                .content(json.writeValueAsString(input))).andExpect(status().isBadRequest()));
+        assertThat(error.path("fieldErrors").get(0).path("field").asText()).isEqualTo("sizeClass");
+    }
+
+    @Test void crawledMaterialLabelIsReturnedAsCodeAndLabel() throws Exception {
+        jdbc.update("update box_spec set material='골판지 B골' where id=?", box);
+        mvc.perform(get(base() + "/box-specs/" + box)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.material").value("B"))
+                .andExpect(jsonPath("$.data.materialLabel").value("골판지 B골"));
+    }
+
+    @Test void blockedDeletionExplainsLinkedProductsAndOpenOrders() throws Exception {
+        draft();
+        var error = errorOf(mvc.perform(delete(base() + "/box-specs/" + box).param("expectedVersion", String.valueOf(version())))
+                .andExpect(status().isConflict()));
+        assertThat(error.path("code").asText()).isEqualTo("REFERENCED_SPEC");
+        assertThat(error.path("details").path("active").asBoolean()).isTrue();
+        assertThat(error.path("details").path("linkedProductCount").asLong()).isEqualTo(1);
+        assertThat(error.path("details").path("openPurchaseOrderNos")).hasSize(1);
+        assertThat(error.path("details").path("onHandQty").asInt()).isEqualTo(100);
+    }
+
+    @Test void suppliersAndMaterialsFeedTheSpecModalDropdowns() throws Exception {
+        jdbc.update("insert into supplier(id,warehouse_id,name,lead_time_days) values (?,?,'가나포장',3)", UUID.randomUUID(), warehouse);
+        mvc.perform(get(base() + "/suppliers")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].name").value("가나포장"));
+        mvc.perform(get(base() + "/suppliers").param("keyword", "가나")).andExpect(jsonPath("$.data.length()").value(1));
+        mvc.perform(get("/api/v1/box-materials")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(6))
+                .andExpect(jsonPath("$.data[0].code").value("A"))
+                .andExpect(jsonPath("$.data[0].label").value("골판지 A골"));
+    }
+
+    UUID insertBox(String code, int w, int d, int h) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+                insert into box_spec(id,warehouse_id,code,name,size_class,inner_width_mm,inner_depth_mm,inner_height_mm,
+                    on_hand_qty,safety_qty,unit_price_krw,supplier_id,is_active,is_custom,alert_enabled,version)
+                values (?,?,?,?,'S',?,?,?,0,0,100,?,true,false,true,0)
+                """, id, warehouse, code, code, w, d, h, supplier);
+        return id;
+    }
+    UUID insertUnmatchedProduct(String code, Integer w, Integer d, Integer h) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+                insert into product(id,warehouse_id,code,name,width_mm,depth_mm,height_mm,match_status,is_active,version)
+                values (?,?,?,?,?,?,?,'UNMATCHED',true,0)
+                """, id, warehouse, code, code, w, d, h);
+        return id;
+    }
+
+    @Test void dimensionChangeAppliesTheTopCandidateToNonManualProducts() throws Exception {
+        UUID tight = insertBox("S-0", 110, 110, 60);
+        UUID item = insertUnmatchedProduct("SKU-2", null, null, null);
+        var result = patchJson("/products/" + item, Map.of("expectedVersion", 0, "widthMm", 100, "depthMm", 100, "heightMm", 50), 200);
+        assertThat(result.path("matchedBoxSpec").path("id").asText()).isEqualTo(tight.toString());
+        assertThat(result.path("matchSource").asText()).isEqualTo("DIMENSIONS");
+        assertThat(result.path("fillRatePct").decimalValue()).isEqualByComparingTo("68.87");
+        assertThat(result.path("matchStatus").asText()).isEqualTo("REVIEW");
+        assertThat(result.path("matchCandidates").get(0).path("boxSpec").path("id").asText()).isEqualTo(tight.toString());
+        result = patchJson("/products/" + item, Map.of("expectedVersion", result.path("version").asInt(),
+                "widthMm", 105, "depthMm", 105, "heightMm", 58), 200);
+        assertThat(result.path("matchStatus").asText()).isEqualTo("MATCHED");
+    }
+
+    @Test void dimensionChangeKeepsAManuallyChosenBox() throws Exception {
+        insertBox("S-0", 110, 110, 60);
+        var result = patchJson("/products/" + product, Map.of("expectedVersion", 0, "heightMm", 50), 200);
+        assertThat(result.path("matchedBoxSpec").path("id").asText()).isEqualTo(box.toString());
+        assertThat(result.path("matchSource").asText()).isEqualTo("MANUAL");
+    }
+
+    @Test void bulkRecalculationFillsOnlyUnmatchedProducts() throws Exception {
+        insertUnmatchedProduct("SKU-FIT", 195, 145, 95);
+        insertUnmatchedProduct("SKU-NODIM", null, null, null);
+        insertUnmatchedProduct("SKU-HUGE", 1000, 1000, 1000);
+        var result = postJson("/product-matches/recalculate", Map.of(), 200);
+        assertThat(result.path("targetCount").asInt()).isEqualTo(3);
+        assertThat(result.path("matchedCount").asInt()).isEqualTo(1);
+        assertThat(result.path("unmatchedCount").asInt()).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select match_source from product where code='SKU-FIT'", String.class)).isEqualTo("DIMENSIONS");
+        assertThat(jdbc.queryForObject("select match_source from product where id=?", String.class, product)).isEqualTo("MANUAL");
+        assertThat(postJson("/product-matches/recalculate", Map.of(), 200).path("targetCount").asInt()).isEqualTo(2);
     }
 
     @Test void safetyDaysArePersistedAndCalculatedFromAvailableReferenceWithoutClaimingActualConsumption() throws Exception {
