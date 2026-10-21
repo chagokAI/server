@@ -26,6 +26,10 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD를 설정하세요}
       DDL_AUTO: update
       AUTH_ENABLED: "true"
+      # 에이전트 business-mcp 내부 API(/internal/**) 토큰. 비어 있으면 내부 API 전부 거부. box_agent/.env 와 같은 값
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
+      # 박스 주문 제안 에이전트 서버(box_agent compose 의 agent 서비스, 같은 docker network)
+      AGENT_API_URL: ${AGENT_API_URL:-http://agent:8000}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8080}
       SERVER_FORWARD_HEADERS_STRATEGY: framework
       JOB_SCHEDULING_ENABLED: ${JOB_SCHEDULING_ENABLED:-false}
