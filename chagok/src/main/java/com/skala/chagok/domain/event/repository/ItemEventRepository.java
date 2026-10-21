@@ -21,4 +21,9 @@ public interface ItemEventRepository extends JpaRepository<ItemEvent, ItemEventI
     @Query("select e from ItemEvent e where e.warehouse.id = :warehouseId "
             + "order by e.id.occurredAt desc, e.id.eventId asc")
     List<ItemEvent> findRecent(UUID warehouseId, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"product", "boxSpec"})
+    @Query("select e from ItemEvent e where e.warehouse.id = :warehouseId and e.id.occurredAt >= :from "
+            + "and e.id.occurredAt < :to order by e.id.occurredAt asc, e.id.eventId asc")
+    List<ItemEvent> findInRange(UUID warehouseId, java.time.Instant from, java.time.Instant to, Pageable pageable);
 }
