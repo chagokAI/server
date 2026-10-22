@@ -9,7 +9,9 @@ import java.util.UUID;
 public record DashboardResponse(String currentMonth, String targetMonth, InventorySummary inventory,
                                  List<StockBySize> stockBySize, List<Shortage> shortages, Long projectedStockQty,
                                  DemandForecast demandForecast, LatestResult<CostForecastResponse> currentMonthCost,
-                                 LatestResult<CostForecastResponse> targetMonthCost) {
+                                 LatestResult<CostForecastResponse> targetMonthCost, PlanMetrics planMetrics) {
+    public record PlanMetrics(String basis, Long estimatedBoxCostKrw, Long monthlySavingsKrw,
+                              Long plannedPurchaseCostKrw, String savingsBasis, int unknownSafetySpecCount) {}
     public record StockBySize(String sizeClass, Long onHandQty, Long safetyQty) {}
     public record Shortage(UUID boxSpecId, String code, String name, long onHandQty, long safetyQty,
                            long shortageQty, Integer daysToStockout) {}

@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service @RequiredArgsConstructor @Transactional(readOnly = true)
 public class ProcurementQueryService {
+    public record ProposalChoice(UUID id, String targetMonth, java.time.Instant generatedAt, boolean hasNewSpecs) {}
     private final ProcurementProposalRepository proposals;
     private final ProcurementProposalItemRepository items;
     private final CostForecastRepository forecasts;
@@ -26,6 +27,33 @@ public class ProcurementQueryService {
         String month = month(targetMonth);
         ProposalResponse result = proposals.findFirstByWarehouseIdAndTargetMonthOrderByGeneratedAtDescIdDesc(warehouseId, month)
                 .map(p -> ProposalResponse.from(p, items.findByProposalId(p.getId()))).orElse(null);
+        return LatestResult.of(month, result, jobs.latest(warehouseId, month));
+    }
+
+    public java.util.List<ProposalChoice> listAgentProposals(UUID warehouseId) {
+        warehouses.require(warehouseId);
+        return proposals.findByWarehouseIdOrderByGeneratedAtDescIdDesc(warehouseId, org.springframework.data.domain.PageRequest.of(0, 100))
+                .stream().filter(p -> p.getSummary() != null && p.getSummary().containsKey("clientView") && AgentProposalData.approved(p.getSummary()))
+                .map(p -> new ProposalChoice(p.getId(), p.getTargetMonth().trim(), p.getGeneratedAt(),
+                        !AgentProposalData.rows(p.getSummary().get("newSpecs")).isEmpty())).toList();
+    }
+
+    /** AI 개선 제안과 참고 계산을 따로 선택한다. AUTO는 승인된 AI 개선 제안을 우선한다. */
+    public LatestResult<ProposalResponse> latestProposal(UUID warehouseId, String targetMonth, String source) {
+        if ("LATEST".equals(source)) return latestProposal(warehouseId, targetMonth);
+        if (!java.util.Set.of("AUTO", "AI", "REFERENCE").contains(source))
+            throw BusinessException.invalidField("source", "AUTO, AI, REFERENCE, LATEST 중 하나여야 합니다.");
+        warehouses.require(warehouseId);
+        String month = month(targetMonth);
+        var candidates = proposals.findByWarehouseIdAndTargetMonthOrderByGeneratedAtDescIdDesc(warehouseId, month);
+        var selected = candidates.stream().filter(p -> {
+            var summary = p.getSummary();
+            return summary != null && ("REFERENCE".equals(source)
+                    ? "OBSERVATION_BASELINE".equals(summary.get("method"))
+                    : summary.containsKey("clientView") && AgentProposalData.approved(summary));
+        }).findFirst();
+        if (selected.isEmpty() && "AUTO".equals(source)) selected = candidates.stream().findFirst();
+        ProposalResponse result = selected.map(p -> ProposalResponse.from(p, items.findByProposalId(p.getId()))).orElse(null);
         return LatestResult.of(month, result, jobs.latest(warehouseId, month));
     }
 

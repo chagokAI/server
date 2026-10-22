@@ -66,6 +66,21 @@ class QueryServiceTests {
         assertThat(result.snapshotComplete()).isTrue();
     }
 
+    @Test void newerReferenceCalculationDoesNotHideApprovedAiPlanningWhenAutoIsSelected() {
+        var proposals = mock(ProcurementProposalRepository.class);
+        var lines = mock(ProcurementProposalItemRepository.class);
+        var reference = ProcurementProposal.builder().id(UUID.randomUUID()).summary(Map.of("method", "OBSERVATION_BASELINE")).build();
+        var ai = ProcurementProposal.builder().id(UUID.randomUUID())
+                .summary(Map.of("clientView", Map.of(), "approval", Map.of("status", "APPROVED"))).build();
+        when(proposals.findByWarehouseIdAndTargetMonthOrderByGeneratedAtDescIdDesc(warehouseId, "2026-11"))
+                .thenReturn(List.of(reference, ai));
+        var service = new ProcurementQueryService(proposals, lines, mock(CostForecastRepository.class),
+                mock(JobQueryService.class), guard, properties);
+        assertThat(service.latestProposal(warehouseId, "2026-11", "AUTO").result().id()).isEqualTo(ai.getId());
+        assertThat(service.latestProposal(warehouseId, "2026-11", "REFERENCE").result().id()).isEqualTo(reference.getId());
+        assertThatThrownBy(() -> service.latestProposal(warehouseId, "2026-11", "INVALID")).isInstanceOf(BusinessException.class);
+    }
+
     @Test void legacyProposalDoesNotUseTodaysPriceToInventHistoricalAmount() {
         var box = BoxSpec.builder().id(UUID.randomUUID()).code("S-1").unitPriceKrw(9999).build();
         var result = ProposalResponse.from(ProcurementProposal.builder().build(), List.of(

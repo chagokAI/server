@@ -28,5 +28,7 @@ public interface BoxSpecRepository extends JpaRepository<BoxSpec, UUID>, JpaSpec
 
     boolean existsByWarehouseIdAndCode(UUID warehouseId, String code);
 
+    Optional<BoxSpec> findByWarehouseIdAndCode(UUID warehouseId, String code);
+
     boolean existsByWarehouseIdAndCodeAndIdNot(UUID warehouseId, String code, UUID id);
 }
