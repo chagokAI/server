@@ -47,3 +47,5 @@ Thumbs.db
 
 docs/*
 !docs/*.md
+!docs/erd.sql
+!docs/erd-postgresql.sql
