@@ -33,6 +33,11 @@ public class DashboardQueryController {
         var scene = from == null && to == null && afterObservedAt == null && afterEventId == null && !includeRange
                 ? observations.scene(warehouseId, limit)
                 : observations.scene(warehouseId, limit, from, to, afterObservedAt, afterEventId, includeRange);
+                                             @RequestParam(required = false) java.time.OffsetDateTime from,
+                                             @RequestParam(required = false) java.time.OffsetDateTime to) {
+        // from·to 가 없으면 최근 limit 건(최신순), 있으면 그 기간을 시간순으로(디지털트윈 재생)
+        var scene = from == null && to == null ? observations.scene(warehouseId, limit)
+                : observations.scene(warehouseId, limit, from == null ? null : from.toInstant(), to == null ? null : to.toInstant());
         return responses.of(scene, null, scene.pendingEventCount());
     }
 
