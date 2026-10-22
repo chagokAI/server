@@ -35,6 +35,22 @@ class JobCalculationTests {
         assertThat(line.proposedQty()).isEqualTo(100);
     }
 
+    @Test void derivesMissingSafetyQuantityFromRegisteredDaysWithoutMutatingPolicy() {
+        var box = BoxSpec.builder().onHandQty(0).safetyDays(7).unitPriceKrw(100).build();
+        var line = calculator.calculate(box, 29, YearMonth.of(2026, 11));
+        assertThat(line.safetyQty()).isEqualTo(8);
+        assertThat(line.safetySource()).isEqualTo("DAYS");
+        assertThat(box.getSafetyQty()).isNull();
+        assertThat(box.getSafetyDays()).isEqualTo(7);
+    }
+
+    @Test void explicitZeroSafetyQuantityTakesPriorityOverDays() {
+        var box = BoxSpec.builder().onHandQty(0).safetyQty(0).safetyDays(7).unitPriceKrw(100).build();
+        var line = calculator.calculate(box, 28, YearMonth.of(2026, 11));
+        assertThat(line.safetyQty()).isZero();
+        assertThat(line.safetySource()).isEqualTo("CONFIGURED");
+    }
+
     @Test void doesNotSubstituteUnknownStockOrPriceWithZero() {
         assertThatThrownBy(() -> calculator.calculate(BoxSpec.builder().code("S-1").build(), 28, YearMonth.of(2026, 11)))
                 .isInstanceOfSatisfying(JobCalculationException.class, e -> assertThat(e.code()).isEqualTo("INCOMPLETE_BOX_DATA"));
