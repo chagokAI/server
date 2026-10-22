@@ -5,6 +5,7 @@ import com.skala.chagok.domain.dashboard.service.*;
 import com.skala.chagok.global.response.*;
 import jakarta.validation.constraints.*;
 import java.time.LocalDate;
+import java.time.Instant;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -24,6 +25,14 @@ public class DashboardQueryController {
     @GetMapping("/simulation-state")
     public ApiResponse<SceneResponse> scene(@PathVariable UUID warehouseId,
                                              @RequestParam(defaultValue = "100") @Min(1) @Max(500) int limit,
+                                             @RequestParam(required = false) Instant from,
+                                             @RequestParam(required = false) Instant to,
+                                             @RequestParam(required = false) Instant afterObservedAt,
+                                             @RequestParam(required = false) String afterEventId,
+                                             @RequestParam(defaultValue = "false") boolean includeRange) {
+        var scene = from == null && to == null && afterObservedAt == null && afterEventId == null && !includeRange
+                ? observations.scene(warehouseId, limit)
+                : observations.scene(warehouseId, limit, from, to, afterObservedAt, afterEventId, includeRange);
                                              @RequestParam(required = false) java.time.OffsetDateTime from,
                                              @RequestParam(required = false) java.time.OffsetDateTime to) {
         // from·to 가 없으면 최근 limit 건(최신순), 있으면 그 기간을 시간순으로(디지털트윈 재생)

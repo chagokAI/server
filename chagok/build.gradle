@@ -65,5 +65,8 @@ tasks.register('offlineTest', Test) {
         excludeTestsMatching 'com.skala.chagok.job.JobFlowIntegrationTest'
         excludeTestsMatching 'com.skala.chagok.workflow.SpringWorkflowIntegrationTest'
         excludeTestsMatching 'com.skala.chagok.workflow.AuthFlowIntegrationTest'
+        // 이 두 흐름도 실제 PostgreSQL에 fixture를 넣는 통합 테스트다. test에서는 계속 실행한다.
+        excludeTestsMatching 'com.skala.chagok.workflow.NotificationReadFlowTest'
+        excludeTestsMatching 'com.skala.chagok.workflow.RefreshPolicyFlowTest'
     }
 }

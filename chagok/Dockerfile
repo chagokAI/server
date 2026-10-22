@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf 
     && groupadd --system app && useradd --system --gid app --home-dir /app app
 WORKDIR /app
 COPY --from=build --chown=app:app /workspace/build/libs/chagok-0.0.1-SNAPSHOT.jar app.jar
+RUN mkdir -p /images && chown app:app /images
 USER app
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

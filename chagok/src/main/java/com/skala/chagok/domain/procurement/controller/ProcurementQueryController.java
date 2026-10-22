@@ -12,10 +12,17 @@ public class ProcurementQueryController {
     private final ProcurementQueryService service;
     private final ApiResponses responses;
 
+    @GetMapping("/procurement-proposals")
+    public ApiResponse<java.util.List<ProcurementQueryService.ProposalChoice>> list(@PathVariable UUID warehouseId) {
+        return responses.of(service.listAgentProposals(warehouseId));
+    }
+
     @GetMapping("/procurement-proposals/latest")
     public ApiResponse<LatestResult<ProposalResponse>> latestProposal(@PathVariable UUID warehouseId,
-                                                                      @RequestParam String targetMonth) {
-        var result = service.latestProposal(warehouseId, targetMonth);
+                                                                      @RequestParam String targetMonth,
+                                                                      @RequestParam(defaultValue = "LATEST") String source) {
+        var result = "LATEST".equals(source) ? service.latestProposal(warehouseId, targetMonth)
+                : service.latestProposal(warehouseId, targetMonth, source);
         return responses.of(result, result.result() == null ? null : result.result().dataAsOf(), null);
     }
 

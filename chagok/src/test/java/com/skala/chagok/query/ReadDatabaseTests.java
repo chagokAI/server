@@ -138,6 +138,22 @@ class ReadDatabaseTests {
         assertThat(values.getFirst().sampleCount()).isEqualTo(2);
     }
 
+    @Test void simulationRangeUsesExclusiveCompositeCursorAndIncludesExactTimeBoundaries() {
+        Instant from = Instant.parse("2026-09-30T00:00:00Z"), to = from.plusSeconds(1);
+        em.getTransaction().begin();
+        var warehouse = em.find(Warehouse.class, warehouseId);
+        for (String id : List.of("a", "b", "c", "outside")) {
+            Instant at = id.equals("outside") ? from.minusSeconds(1) : id.equals("c") ? to : from;
+            em.persist(ItemEvent.builder().id(new ItemEventId(warehouseId + id, at)).warehouse(warehouse).status("SUCCEEDED").build());
+        }
+        em.getTransaction().commit();
+        var repository = repositories.getRepository(ItemEventRepository.class);
+        var first = repository.findRange(warehouseId, from, to, PageRequest.of(0, 1));
+        assertThat(first).extracting(row -> row.getId().getEventId()).containsExactly(warehouseId + "a");
+        var next = repository.findRangeAfter(warehouseId, from, to, from, warehouseId + "a", PageRequest.of(0, 10));
+        assertThat(next).extracting(row -> row.getId().getEventId()).containsExactly(warehouseId + "b", warehouseId + "c");
+    }
+
     @Test void latestProposalSelectionIsScopedAndForecastSumRejectsIncompleteInput() {
         UUID proposalId = UUID.randomUUID(), boxId = UUID.randomUUID();
         jdbc.update("insert into procurement_proposal (id, warehouse_id, target_month, generated_at) values (?, ?, '2026-11', ?)",
@@ -182,6 +198,18 @@ class ReadDatabaseTests {
         assertThat(page.totalElements()).isEqualTo(1);
         assertThat(page.counts().get("ALL")).isEqualTo(3);
         assertThat(page.summary().totalAmountKrw()).isEqualByComparingTo("6900");
+        var history = service.list(warehouseId, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 31), "%",
+                null, 0, 1, null, true);
+        assertThat(history.items()).extracting(row -> row.status()).containsExactly(PurchaseOrderStatus.RECEIVED);
+        assertThat(history.totalElements()).isEqualTo(1);
+        assertThat(history.counts().get("ALL")).isEqualTo(1);
+        assertThat(history.counts().get("PENDING")).isZero();
+        assertThat(history.counts().get("REJECTED")).isZero();
+        assertThat(history.summary().totalOrderCount()).isEqualTo(1);
+        assertThat(history.summary().totalAmountKrw()).isEqualByComparingTo("6000");
+        assertThat(history.summary().pendingCount()).isZero();
+        assertThat(service.list(warehouseId, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 31), "%",
+                PurchaseOrderStatus.PENDING, 0, 1, null, true).items()).isEmpty();
         assertThat(service.get(warehouseId, received).items()).hasSize(2);
         assertThatThrownBy(() -> service.get(warehouseId, UUID.randomUUID())).isInstanceOf(BusinessException.class);
     }

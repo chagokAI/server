@@ -37,6 +37,7 @@ src/main/resources/application-secret.*
 .vscode/
 
 # Logs
+/data/captures/
 *.log
 logs/
 
@@ -46,3 +47,5 @@ Thumbs.db
 
 docs/*
 !docs/*.md
+!docs/erd.sql
+!docs/erd-postgresql.sql

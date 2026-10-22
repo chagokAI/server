@@ -5,6 +5,8 @@ import com.skala.chagok.domain.event.entity.ItemEventId;
 
 import java.util.UUID;
 import java.util.List;
+import java.util.Optional;
+import java.time.Instant;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Query;
@@ -18,11 +20,23 @@ public interface ItemEventRepository extends JpaRepository<ItemEvent, ItemEventI
     int countByWarehouseIdAndStatus(UUID warehouseId, String status);
 
     @EntityGraph(attributePaths = {"product", "boxSpec"})
+    Optional<ItemEvent> findByWarehouseIdAndId_EventId(UUID warehouseId, String eventId);
+
+    @EntityGraph(attributePaths = {"product", "boxSpec"})
     @Query("select e from ItemEvent e where e.warehouse.id = :warehouseId "
             + "order by e.id.occurredAt desc, e.id.eventId asc")
     List<ItemEvent> findRecent(UUID warehouseId, Pageable pageable);
 
     @EntityGraph(attributePaths = {"product", "boxSpec"})
+    @Query("select e from ItemEvent e where e.warehouse.id = :warehouseId and e.id.occurredAt >= :from and e.id.occurredAt <= :to "
+            + "order by e.id.occurredAt asc, e.id.eventId asc")
+    List<ItemEvent> findRange(UUID warehouseId, Instant from, Instant to, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"product", "boxSpec"})
+    @Query("select e from ItemEvent e where e.warehouse.id = :warehouseId and e.id.occurredAt >= :from and e.id.occurredAt <= :to "
+            + "and (e.id.occurredAt > :afterAt or (e.id.occurredAt = :afterAt and e.id.eventId > :afterId)) "
+            + "order by e.id.occurredAt asc, e.id.eventId asc")
+    List<ItemEvent> findRangeAfter(UUID warehouseId, Instant from, Instant to, Instant afterAt, String afterId, Pageable pageable);
     @Query("select e from ItemEvent e where e.warehouse.id = :warehouseId and e.id.occurredAt >= :from "
             + "and e.id.occurredAt < :to order by e.id.occurredAt asc, e.id.eventId asc")
     List<ItemEvent> findInRange(UUID warehouseId, java.time.Instant from, java.time.Instant to, Pageable pageable);

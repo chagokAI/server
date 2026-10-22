@@ -25,6 +25,7 @@ public class PurchaseOrderWorkflowService {
     private final WarehouseRepository warehouses;
     private final ProcurementProposalRepository proposals;
     private final ProcurementProposalItemRepository proposalItems;
+    private final com.skala.chagok.domain.procurement.service.AgentProposalItemService agentItems;
     private final PurchaseOrderRepository orders;
     private final PurchaseOrderItemRepository items;
     private final BoxSpecRepository boxes;
@@ -43,6 +44,7 @@ public class PurchaseOrderWorkflowService {
         if (!existing.isEmpty()) return new DraftResult(false, group(proposal.getId(), existing));
         checkDate(request.requestedDeliveryDate());
         var user = user(warehouseId);
+        agentItems.materialize(proposal);
         var lines = proposalItems.findByProposalId(proposal.getId());
         if (lines.stream().anyMatch(line -> line.getProposedQty() == null || line.getProposedQty() < 0))
             throw new BusinessException(ErrorCode.INVALID_STATE, "제안 수량이 누락되었습니다.");

@@ -20,7 +20,7 @@ import jakarta.persistence.EntityManager;
  * 남는다. DL Worker는 그 요청도 분석하지만, 결과 컨슈머가 행을 찾지 못해 고아 결과로 버린다. 발행은 트랜잭션 밖에서 기다리고, 저장은
  * 저장소의 save가 여는 짧은 트랜잭션 하나로 끝난다.
  *
- * <p>HTTP 진입점은 팀 합의 전이라 아직 없다. 진입점이 정해지면 그 컨트롤러가 이 서비스를 부른다.
+ * <p>촬영 접수 API와 배치 접수가 같은 메시지 계약을 사용한다.
  */
 @Service
 @KafkaIntegrationEnabled
@@ -72,6 +72,7 @@ public class DlAnalysisAcceptService {
                 .id(new ItemEventId(eventId, occurredAt))
                 .warehouse(entityManager.getReference(Warehouse.class, warehouseId))
                 .status(ItemEventStatus.PENDING.name())
+                .imageRefs(List.copyOf(imageRefs))
                 .build());
         return eventId;
     }

@@ -16,7 +16,7 @@
 - [ ] **COMMON-API-03** — `GET /api/v1/warehouses/{warehouseId}/refresh-policy` — 없음 → 200 RefreshPolicy / COM-02 **직접 구현용으로 남김**
 
 - [x] **DASH-API-01** — `GET /api/v1/warehouses/{warehouseId}/dashboard` — targetMonth? 기본 다음 달 → 200 Dashboard / DASH-01,04~10
-- [x] **DASH-API-02** — `GET /api/v1/warehouses/{warehouseId}/simulation-state` — limit? 기본 100, 최대 500; 최근 관측 순, boxId로 동률 정렬 → 200 Scene / DASH-02~03
+- [x] **DASH-API-02** — `GET /api/v1/warehouses/{warehouseId}/simulation-state` — limit? 기본 100, 최대 500; 최근 관측 순, 기간 지정 시 시간·이벤트 ID 커서 페이지, DL 치수와 선택적 availableRange → 200 Scene / DASH-02~03 ([3D 연동](digital-twin.md))
 - [x] **DASH-API-03** — `GET /api/v1/warehouses/{warehouseId}/metrics` — metric, from, to, bucket=day\|hour, boxSpecId? → 200 MetricSeries / 추이 확인 확장
 
 - [x] **INV-API-03** — `POST /api/v1/warehouses/{warehouseId}/inventory-receipts` — ReceiptInput → 201 Receipt / INV-04~05

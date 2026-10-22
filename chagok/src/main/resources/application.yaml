@@ -5,6 +5,11 @@ spring:
   application:
     name: chagok
 
+  servlet:
+    multipart:
+      max-file-size: 12MB
+      max-request-size: 40MB
+
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/chagok}
     username: ${DB_USERNAME:postgres}
@@ -65,6 +70,8 @@ spring:
 
 # DL 분석 요청·결과 토픽. 메시지 형식은 docs/dl-kafka-contract.md, 복제 계수 1은 로컬 단일 브로커 기준이다
 chagok:
+  dl:
+    image-root: ${DL_IMAGE_ROOT:./data/captures}
   kafka:
     dl-analysis-request:
       topic: chagok.dl.analysis-request.v1

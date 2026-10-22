@@ -33,6 +33,11 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.web.servlet.MockMvc;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
@@ -54,8 +59,10 @@ import tools.jackson.databind.json.JsonMapper;
  * 평범한 JSON)로 보내야 계약을 시험할 수 있기 때문이다. 테스트가 만든 행은 끝날 때 지운다.
  */
 @SpringBootTest
+@AutoConfigureMockMvc
 @EmbeddedKafka(
-        brokerProperties = {"auto.create.topics.enable=false", "group.initial.rebalance.delay.ms=0"},
+        brokerProperties = {"auto.create.topics.enable=false", "group.initial.rebalance.delay.ms=0",
+                "log.segment.bytes=10485760", "log.index.size.max.bytes=1048576", "offsets.topic.num.partitions=3"},
         bootstrapServersProperty = "spring.kafka.bootstrap-servers")
 class DlAnalysisFlowIntegrationTest {
 
@@ -68,6 +75,9 @@ class DlAnalysisFlowIntegrationTest {
 
     @Autowired
     private DlAnalysisAcceptService acceptService;
+
+    @Autowired
+    private MockMvc mvc;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -98,6 +108,7 @@ class DlAnalysisFlowIntegrationTest {
     @DynamicPropertySource
     static void measurementLog(DynamicPropertyRegistry registry) {
         registry.add("chagok.dl.measure.measurement-log", MEASUREMENT_LOG::toString);
+        registry.add("chagok.dl.image-root", () -> imageDir.toString());
     }
 
     @BeforeEach
@@ -145,6 +156,37 @@ class DlAnalysisFlowIntegrationTest {
     }
 
     @Test
+    void uploadedCameraImagesReachKafkaAndResultCanBeReadFromTheDatabase() throws Exception {
+        String path = "/api/v1/warehouses/" + warehouseId + "/captures";
+        var request = multipart(path);
+        byte[][] originals = new byte[3][];
+        for (int cam=0; cam<3; cam++) {
+            var bytes = new java.io.ByteArrayOutputStream();
+            var image = new java.awt.image.BufferedImage(1920,1080,java.awt.image.BufferedImage.TYPE_INT_RGB);
+            image.setRGB(0,0,cam+1);
+            javax.imageio.ImageIO.write(image,"png",bytes);
+            originals[cam] = bytes.toByteArray();
+            request.file(new MockMultipartFile("images","cam"+(cam+1)+".png","image/png",originals[cam]));
+        }
+        var response = mvc.perform(request).andExpect(status().isAccepted()).andReturn();
+        String eventId = JSON.readTree(response.getResponse().getContentAsString()).get("data").get("eventId").asString();
+        eventIds.add(eventId);
+        JsonNode message = awaitRequest(eventId);
+        for (int cam=0; cam<3; cam++) {
+            Path saved = Path.of(message.get("imageRefs").get(cam).asString());
+            assertThat(saved.startsWith(imageDir)).isTrue();
+            assertThat(Files.readAllBytes(saved)).isEqualTo(originals[cam]);
+        }
+        // 추론 정확도는 별도 검증됐으므로 여기서는 Worker의 계약 응답으로 전송·반영만 확인한다.
+        reply(eventId, known(eventId,BARCODE));
+        assertThat(awaitFinished(eventId).get("status")).isEqualTo("SUCCEEDED");
+        mvc.perform(get(path+"/"+eventId)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.imageCount").value(3))
+                .andExpect(jsonPath("$.data.observation.product.id").value(productId.toString()))
+                .andExpect(jsonPath("$.data.observation.boxSpec.id").value(boxSpecId.toString()));
+    }
+
+    @Test
     void identifiedItemCopiesProductMatchIntoItemEvent() throws Exception {
         String eventId = accept();
 
@@ -159,6 +201,7 @@ class DlAnalysisFlowIntegrationTest {
         assertThat(row.get("box_spec_id")).isEqualTo(boxSpecId);
         assertThat(row.get("fill_rate_pct").toString()).isEqualTo("72.50");
         assertThat(row.get("placement")).isNull();
+        assertThat(jdbc.queryForObject("select measurement->>'widthMm' from item_event where event_id=?", String.class, eventId)).isEqualTo("239");
         await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(measurementLine(eventId))
                 .contains("\"barcode\":\"" + BARCODE + "\"", "\"sizeType\":\"measured\"", "\"widthCm\":23.9",
                         "\"outcome\":\"SUCCEEDED\"", "\"latencyMs\":150"));

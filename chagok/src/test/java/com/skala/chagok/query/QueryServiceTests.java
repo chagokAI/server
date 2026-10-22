@@ -66,6 +66,21 @@ class QueryServiceTests {
         assertThat(result.snapshotComplete()).isTrue();
     }
 
+    @Test void newerReferenceCalculationDoesNotHideApprovedAiPlanningWhenAutoIsSelected() {
+        var proposals = mock(ProcurementProposalRepository.class);
+        var lines = mock(ProcurementProposalItemRepository.class);
+        var reference = ProcurementProposal.builder().id(UUID.randomUUID()).summary(Map.of("method", "OBSERVATION_BASELINE")).build();
+        var ai = ProcurementProposal.builder().id(UUID.randomUUID())
+                .summary(Map.of("clientView", Map.of(), "approval", Map.of("status", "APPROVED"))).build();
+        when(proposals.findByWarehouseIdAndTargetMonthOrderByGeneratedAtDescIdDesc(warehouseId, "2026-11"))
+                .thenReturn(List.of(reference, ai));
+        var service = new ProcurementQueryService(proposals, lines, mock(CostForecastRepository.class),
+                mock(JobQueryService.class), guard, properties);
+        assertThat(service.latestProposal(warehouseId, "2026-11", "AUTO").result().id()).isEqualTo(ai.getId());
+        assertThat(service.latestProposal(warehouseId, "2026-11", "REFERENCE").result().id()).isEqualTo(reference.getId());
+        assertThatThrownBy(() -> service.latestProposal(warehouseId, "2026-11", "INVALID")).isInstanceOf(BusinessException.class);
+    }
+
     @Test void legacyProposalDoesNotUseTodaysPriceToInventHistoricalAmount() {
         var box = BoxSpec.builder().id(UUID.randomUUID()).code("S-1").unitPriceKrw(9999).build();
         var result = ProposalResponse.from(ProcurementProposal.builder().build(), List.of(
@@ -90,6 +105,7 @@ class QueryServiceTests {
                 eq("Asia/Seoul"), eq(MetricSeries.Bucket.day), eq(MetricSeries.Metric.AVG_FILL_RATE_PCT), isNull()))
                 .thenReturn(List.of(new MetricQueryRepository.Aggregate(firstBucket, new BigDecimal("81.25"), 4)));
         var service = new ObservationQueryService(mock(ItemEventRepository.class), repository, mock(BoxSpecRepository.class), guard, properties,
+                mock(com.skala.chagok.domain.dashboard.repository.SimulationMeasurementRepository.class));
                 mock(com.skala.chagok.domain.dashboard.repository.MeasurementQueryRepository.class));
         var result = service.metrics(warehouseId, MetricSeries.Metric.AVG_FILL_RATE_PCT,
                 LocalDate.of(2026, 10, 19), LocalDate.of(2026, 10, 20), MetricSeries.Bucket.day, null);
@@ -102,6 +118,7 @@ class QueryServiceTests {
     @Test void hourlyMetricsRejectUnboundedRangesBeforeDatabaseQuery() {
         var repository = mock(MetricQueryRepository.class);
         var service = new ObservationQueryService(mock(ItemEventRepository.class), repository, mock(BoxSpecRepository.class), guard, properties,
+                mock(com.skala.chagok.domain.dashboard.repository.SimulationMeasurementRepository.class));
                 mock(com.skala.chagok.domain.dashboard.repository.MeasurementQueryRepository.class));
         assertThatThrownBy(() -> service.metrics(warehouseId, MetricSeries.Metric.OBSERVATION_COUNT,
                 LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31), MetricSeries.Bucket.hour, null))
