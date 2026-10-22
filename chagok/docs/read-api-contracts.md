@@ -49,14 +49,19 @@
 
 `GET W/simulation-state?limit=100` — limit 1~500.
 
-- items[]: boxId, eventId, observedAt, status, product, boxSpec, fillRatePct, placement, placementAvailable, dimensionsSource
+- items[]: boxId, eventId, observedAt, status, product, boxSpec, fillRatePct, placement, placementAvailable, dimensionsSource, measurement
 - product: id, code, name, imageUrl, dimensions{widthMm,depthMm,heightMm}
 - latestObservedAt, pendingEventCount, limit
 
 이벤트 한 건이 시각화 인스턴스 한 개이므로 boxId=eventId다.
 관측 시각 내림차순, 동률이면 eventId 오름차순이다.
-치수는 현재 카탈로그이므로 dimensionsSource=CATALOG다. 관측 시각은 분석 완료 시각과 다르다.
+상품 치수는 현재 카탈로그이며, 별도 measurement가 있으면 dimensionsSource는 DL_MEASURED/DL_ESTIMATED다.
+measurement는 신규 Worker 결과 또는 복원한 DL 평가 자료의 mm 치수와 출처를 포함한다. 관측 시각은 분석 완료 시각과 다르다.
 배치 좌표가 없으면 placement=null, placementAvailable=false다.
+
+from/to를 함께 지정하면 해당 구간을 시각·eventId 오름차순으로 반환한다.
+nextCursor/hasMore로 페이지를 이어 받고 includeRange=true이면 availableRange를 포함한다.
+상세 인자와 3D 재생·비교 기준은 [디지털 트윈 연동](digital-twin.md)을 참고한다.
 
 ## DASH-API-03: 지표 추이
 

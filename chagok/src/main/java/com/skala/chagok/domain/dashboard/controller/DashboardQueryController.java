@@ -5,6 +5,7 @@ import com.skala.chagok.domain.dashboard.service.*;
 import com.skala.chagok.global.response.*;
 import jakarta.validation.constraints.*;
 import java.time.LocalDate;
+import java.time.Instant;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -23,8 +24,15 @@ public class DashboardQueryController {
 
     @GetMapping("/simulation-state")
     public ApiResponse<SceneResponse> scene(@PathVariable UUID warehouseId,
-                                             @RequestParam(defaultValue = "100") @Min(1) @Max(500) int limit) {
-        var scene = observations.scene(warehouseId, limit);
+                                             @RequestParam(defaultValue = "100") @Min(1) @Max(500) int limit,
+                                             @RequestParam(required = false) Instant from,
+                                             @RequestParam(required = false) Instant to,
+                                             @RequestParam(required = false) Instant afterObservedAt,
+                                             @RequestParam(required = false) String afterEventId,
+                                             @RequestParam(defaultValue = "false") boolean includeRange) {
+        var scene = from == null && to == null && afterObservedAt == null && afterEventId == null && !includeRange
+                ? observations.scene(warehouseId, limit)
+                : observations.scene(warehouseId, limit, from, to, afterObservedAt, afterEventId, includeRange);
         return responses.of(scene, null, scene.pendingEventCount());
     }
 

@@ -138,6 +138,22 @@ class ReadDatabaseTests {
         assertThat(values.getFirst().sampleCount()).isEqualTo(2);
     }
 
+    @Test void simulationRangeUsesExclusiveCompositeCursorAndIncludesExactTimeBoundaries() {
+        Instant from = Instant.parse("2026-09-30T00:00:00Z"), to = from.plusSeconds(1);
+        em.getTransaction().begin();
+        var warehouse = em.find(Warehouse.class, warehouseId);
+        for (String id : List.of("a", "b", "c", "outside")) {
+            Instant at = id.equals("outside") ? from.minusSeconds(1) : id.equals("c") ? to : from;
+            em.persist(ItemEvent.builder().id(new ItemEventId(warehouseId + id, at)).warehouse(warehouse).status("SUCCEEDED").build());
+        }
+        em.getTransaction().commit();
+        var repository = repositories.getRepository(ItemEventRepository.class);
+        var first = repository.findRange(warehouseId, from, to, PageRequest.of(0, 1));
+        assertThat(first).extracting(row -> row.getId().getEventId()).containsExactly(warehouseId + "a");
+        var next = repository.findRangeAfter(warehouseId, from, to, from, warehouseId + "a", PageRequest.of(0, 10));
+        assertThat(next).extracting(row -> row.getId().getEventId()).containsExactly(warehouseId + "b", warehouseId + "c");
+    }
+
     @Test void latestProposalSelectionIsScopedAndForecastSumRejectsIncompleteInput() {
         UUID proposalId = UUID.randomUUID(), boxId = UUID.randomUUID();
         jdbc.update("insert into procurement_proposal (id, warehouse_id, target_month, generated_at) values (?, ?, '2026-11', ?)",

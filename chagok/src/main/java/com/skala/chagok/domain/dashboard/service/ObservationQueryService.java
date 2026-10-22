@@ -24,14 +24,33 @@ public class ObservationQueryService {
     private final BoxSpecRepository boxes;
     private final WarehouseQueryGuard warehouses;
     private final ChagokProperties properties;
+    private final com.skala.chagok.domain.dashboard.repository.SimulationMeasurementRepository measurements;
 
     public SceneResponse scene(UUID warehouseId, int limit) {
+        return scene(warehouseId, limit, null, null, null, null, false);
+    }
+
+    public SceneResponse scene(UUID warehouseId, int limit, Instant from, Instant to, Instant afterAt, String afterId, boolean includeRange) {
         warehouses.require(warehouseId);
         if (limit < 1 || limit > 500) throw BusinessException.invalidField("limit", "1~500 범위여야 합니다.");
-        var items = events.findRecent(warehouseId, PageRequest.of(0, limit)).stream()
-                .map(SceneResponse.Observation::from).toList();
-        return new SceneResponse(items, limit, items.isEmpty() ? null : items.getFirst().observedAt(),
-                events.countByWarehouseIdAndStatus(warehouseId, "PENDING"));
+        if ((from == null) != (to == null)) throw BusinessException.invalidField("from", "from과 to를 함께 지정하세요.");
+        if (from != null && from.isAfter(to)) throw BusinessException.invalidField("to", "from 이후 시각이어야 합니다.");
+        if ((afterAt == null) != (afterId == null) || (afterAt != null && (from == null || afterAt.isBefore(from) || afterAt.isAfter(to) || afterId.isBlank())))
+            throw BusinessException.invalidField("afterEventId", "기간 내 커서 시각과 이벤트 ID를 함께 지정하세요.");
+        var page = PageRequest.of(0, from == null ? limit : limit + 1);
+        var found = from == null ? events.findRecent(warehouseId, page)
+                : afterAt == null ? events.findRange(warehouseId, from, to, page)
+                : events.findRangeAfter(warehouseId, from, to, afterAt, afterId, page);
+        boolean more = from != null && found.size() > limit;
+        var selected = found.stream().limit(limit).toList();
+        var legacy = measurements.findAll(selected.stream().map(event -> event.getId().getEventId()).toList());
+        var items = selected.stream().map(event -> {
+            var observation = SceneResponse.Observation.from(event);
+            return observation.measurement() == null ? observation.withMeasurement(legacy.get(observation.eventId())) : observation;
+        }).toList();
+        var next = more ? new SceneResponse.Cursor(items.getLast().observedAt(), items.getLast().eventId()) : null;
+        return new SceneResponse(items, limit, items.stream().map(SceneResponse.Observation::observedAt).max(Comparator.naturalOrder()).orElse(null),
+                events.countByWarehouseIdAndStatus(warehouseId, "PENDING"), next, more, includeRange ? measurements.range(warehouseId) : null);
     }
 
     public MetricSeries metrics(UUID warehouseId, MetricSeries.Metric metric, LocalDate from, LocalDate to,
