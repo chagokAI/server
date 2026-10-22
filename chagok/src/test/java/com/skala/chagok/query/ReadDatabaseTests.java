@@ -198,6 +198,18 @@ class ReadDatabaseTests {
         assertThat(page.totalElements()).isEqualTo(1);
         assertThat(page.counts().get("ALL")).isEqualTo(3);
         assertThat(page.summary().totalAmountKrw()).isEqualByComparingTo("6900");
+        var history = service.list(warehouseId, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 31), "%",
+                null, 0, 1, null, true);
+        assertThat(history.items()).extracting(row -> row.status()).containsExactly(PurchaseOrderStatus.RECEIVED);
+        assertThat(history.totalElements()).isEqualTo(1);
+        assertThat(history.counts().get("ALL")).isEqualTo(1);
+        assertThat(history.counts().get("PENDING")).isZero();
+        assertThat(history.counts().get("REJECTED")).isZero();
+        assertThat(history.summary().totalOrderCount()).isEqualTo(1);
+        assertThat(history.summary().totalAmountKrw()).isEqualByComparingTo("6000");
+        assertThat(history.summary().pendingCount()).isZero();
+        assertThat(service.list(warehouseId, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 31), "%",
+                PurchaseOrderStatus.PENDING, 0, 1, null, true).items()).isEmpty();
         assertThat(service.get(warehouseId, received).items()).hasSize(2);
         assertThatThrownBy(() -> service.get(warehouseId, UUID.randomUUID())).isInstanceOf(BusinessException.class);
     }

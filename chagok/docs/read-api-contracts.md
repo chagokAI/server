@@ -133,6 +133,10 @@ cost_forecast 저장 모델을 사용한다. 현재 실행기는 OBSERVATION_BAS
 
 `GET W/purchase-orders?from=2026-08-01&to=2026-10-19`
 
+발주서 이력 화면은 `historyOnly=true`로 APPROVED/IN_TRANSIT/RECEIVED만 조회한다.
+페이지 결과·전체 건수·상태별 counts·summary 모두 승인대기와 반려를 제외한 같은 범위를 사용한다.
+기존 업무 API 호환을 위해 생략 시 false이며 초안/반려 조회도 가능하다. 저장된 발주 데이터는 삭제하지 않는다.
+
 - from/to 필수, 센터 시간대 양 끝 날짜 포함, 최대 5년
 - keyword: 발주번호·공급사명 부분 검색. %/_는 문자로 검색
 - status: PENDING / APPROVED / IN_TRANSIT / REJECTED / RECEIVED

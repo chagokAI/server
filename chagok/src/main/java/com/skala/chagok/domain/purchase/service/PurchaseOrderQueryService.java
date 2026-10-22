@@ -28,6 +28,11 @@ public class PurchaseOrderQueryService {
 
     public PurchaseOrderPageResponse list(UUID warehouseId, LocalDate from, LocalDate to, String keyword,
                                            PurchaseOrderStatus status, int page, int size, String sort) {
+        return list(warehouseId, from, to, keyword, status, page, size, sort, false);
+    }
+
+    public PurchaseOrderPageResponse list(UUID warehouseId, LocalDate from, LocalDate to, String keyword,
+                                           PurchaseOrderStatus status, int page, int size, String sort, boolean historyOnly) {
         warehouses.require(warehouseId); QueryValues.dateRange(from, to);
         if (java.time.temporal.ChronoUnit.DAYS.between(from, to) > 366 * 5)
             throw BusinessException.invalidField("to", "조회 기간은 최대 5년입니다.");
@@ -42,6 +47,8 @@ public class PurchaseOrderQueryService {
                     cb.like(cb.lower(root.get("poNo")), pattern, LikePatterns.ESCAPE),
                     cb.like(cb.lower(root.join("supplier", JoinType.LEFT).get("name")), pattern, LikePatterns.ESCAPE)));
         }
+        if (historyOnly) specification = specification.and((root, query, cb) -> root.get("status").in(
+                PurchaseOrderStatus.APPROVED, PurchaseOrderStatus.IN_TRANSIT, PurchaseOrderStatus.RECEIVED));
         if (status != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("status"), status));
         var pageable = PageRequests.of(page, size, sort, SORTS, "createdAt,desc");
         var amountSort = pageable.getSort().getOrderFor("totalAmountKrw");
@@ -63,7 +70,8 @@ public class PurchaseOrderQueryService {
         var ids = result.getContent().stream().map(PurchaseOrder::getId).toList();
         Map<UUID, List<PurchaseOrderItem>> grouped = ids.isEmpty() ? Map.of() : items.findByPurchaseOrderIdIn(ids).stream()
                 .collect(Collectors.groupingBy(item -> item.getId().getPurchaseOrderId()));
-        var totals = summaries.summarize(warehouseId, start, until, keyword);
+        var totals = summaries.summarize(warehouseId, start, until, keyword).stream()
+                .filter(total -> !historyOnly || Set.of("APPROVED", "IN_TRANSIT", "RECEIVED").contains(total.status())).toList();
         Map<String, Long> counts = new LinkedHashMap<>();
         counts.put("ALL", totals.stream().mapToLong(PurchaseHistorySummaryRepository.StatusTotals::count).sum());
         for (PurchaseOrderStatus value : PurchaseOrderStatus.values()) counts.put(value.name(), 0L);
