@@ -59,7 +59,8 @@ public class DlAnalysisResultRecorder {
     }
 
     private DlAnalysisOutcome fail(String eventId, DlAnalysisFailureReason reason, String detail) {
-        int updated = itemEvents.markFailed(eventId);
+        int updated = itemEvents.failWithReason(eventId, reason.name(),
+                detail == null ? null : detail.substring(0, Math.min(500, detail.length())));
         if (updated == 0) {
             log.info("DL 분석 실패 기록 생략(이미 처리됨): eventId={}, reason={}", eventId, reason);
             return DlAnalysisOutcome.skipped();

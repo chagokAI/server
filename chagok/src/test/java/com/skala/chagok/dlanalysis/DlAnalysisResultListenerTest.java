@@ -33,11 +33,16 @@ class DlAnalysisResultListenerTest {
         givenStatus(ItemEventStatus.PENDING);
         // 메시지의 센터가 달라도 item_event의 센터로 상품을 찾는다
         DlAnalysisResult result = measured("known", "8809037045013", "other-warehouse");
+        when(recorder.recordIdentified("evt-1", WAREHOUSE_ID, "8809037045013")).thenReturn(DlAnalysisOutcome.succeeded());
 
         listener.onResult(result);
 
         verify(recorder).recordIdentified("evt-1", WAREHOUSE_ID, "8809037045013");
         verify(measurementLog).write(eq("evt-1"), eq(result), any());
+        var measurement = org.mockito.ArgumentCaptor.forClass(java.util.Map.class);
+        verify(itemEvents).recordMeasurement(eq("evt-1"), measurement.capture());
+        org.assertj.core.api.Assertions.assertThat(measurement.getValue()).containsEntry("widthMm", 239)
+                .containsEntry("depthMm", 80).containsEntry("heightMm", 34).containsEntry("sizeType", "measured");
     }
 
     @Test

@@ -2,6 +2,9 @@ package com.skala.chagok.dlanalysis;
 
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -35,6 +38,7 @@ class DlAnalysisResultListener {
     }
 
     @KafkaListener(topics = "${chagok.kafka.dl-analysis-result.topic}")
+    @Transactional
     void onResult(DlAnalysisResult result) {
         String eventId = result.eventId();
         if (eventId == null || eventId.isBlank()) {
@@ -50,7 +54,27 @@ class DlAnalysisResultListener {
             return;
         }
         DlAnalysisOutcome outcome = apply(eventId, snapshot, result);
+        if (result.contractViolation() == null && outcome != null && outcome.status() != null)
+            itemEvents.recordMeasurement(eventId, measurement(result));
         measurementLog.write(eventId, result, outcome);
+    }
+
+    private static Map<String, Object> measurement(DlAnalysisResult result) {
+        Map<String, Object> value = new LinkedHashMap<>();
+        value.put("dlStatus", result.dlStatus());
+        value.put("sizeType", result.size() == null ? null : result.size().type());
+        value.put("widthMm", result.size() == null ? null : mm(result.size().widthCm()));
+        value.put("depthMm", result.size() == null ? null : mm(result.size().depthCm()));
+        value.put("heightMm", result.size() == null ? null : mm(result.size().heightCm()));
+        value.put("latencyMs", result.latencyMs());
+        value.put("measuredAt", result.measuredAt());
+        value.put("failureReason", result.failureReason());
+        return value;
+    }
+
+    private static Integer mm(Double cm) {
+        if (cm == null || !Double.isFinite(cm) || cm <= 0 || cm > Integer.MAX_VALUE / 10.0) return null;
+        return java.math.BigDecimal.valueOf(cm).movePointRight(1).setScale(0, java.math.RoundingMode.HALF_UP).intValueExact();
     }
 
     private DlAnalysisOutcome apply(String eventId, DlAnalysisItemEventRepository.Snapshot snapshot, DlAnalysisResult result) {

@@ -3,6 +3,7 @@ package com.skala.chagok.dlanalysis;
 import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Map;
 
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -44,6 +45,16 @@ interface DlAnalysisItemEventRepository extends Repository<ItemEvent, ItemEventI
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("update ItemEvent e set e.status = :to where e.id.eventId = :eventId and e.status = :from")
     int changeStatusIfInStatus(@Param("eventId") String eventId, @Param("from") String from, @Param("to") String to);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update ItemEvent e set e.status = 'FAILED', e.failureReason = :reason, e.failureMessage = :detail "
+            + "where e.id.eventId = :eventId and e.status = 'PENDING'")
+    int failWithReason(@Param("eventId") String eventId, @Param("reason") String reason, @Param("detail") String detail);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update ItemEvent e set e.measurement = :measurement where e.id.eventId = :eventId "
+            + "and e.status <> 'PENDING' and e.measurement is null")
+    int recordMeasurement(@Param("eventId") String eventId, @Param("measurement") Map<String, Object> measurement);
 
     default int markSucceeded(String eventId, Product product, BoxSpec boxSpec, BigDecimal fillRatePct) {
         return completeIfInStatus(eventId, product, boxSpec, fillRatePct,
