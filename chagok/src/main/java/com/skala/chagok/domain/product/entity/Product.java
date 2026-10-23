@@ -152,12 +152,18 @@ public class Product {
         this.matchStatus = matchStatusFor(matchSource, rate);
     }
 
+    /**
+     * 자동 매칭을 MATCHED로 보는 최소 충전율(%). 처음 기준은 85%였고, 팀 결정으로 45%로 낮췄다.
+     * 화면의 충전율 정상 구간 색 기준(45% 이상)과 같아 상태 배지와 막대 색이 서로 어긋나지 않는다.
+     */
+    public static final BigDecimal MATCHED_MIN_FILL_PCT = BigDecimal.valueOf(45);
+
     /** 기본 추천과 실제 포장에 동일한 검토 기준을 적용한다. */
     public static MatchStatus matchStatusFor(String source, BigDecimal rate) {
-        // 직접 지정은 항상 MATCHED, 비스듬히 넣어야 하는 자동 매칭(TILTED)은 항상 REVIEW, 그 외는 85% 기준.
+        // 직접 지정은 항상 MATCHED, 비스듬히 넣어야 하는 자동 매칭(TILTED)은 항상 REVIEW, 그 외는 최소 충전율 기준.
         if ("MANUAL".equals(source)) return MatchStatus.MATCHED;
         if ("TILTED".equals(source)) return MatchStatus.REVIEW;
-        return rate.compareTo(BigDecimal.valueOf(85)) >= 0 ? MatchStatus.MATCHED : MatchStatus.REVIEW;
+        return rate.compareTo(MATCHED_MIN_FILL_PCT) >= 0 ? MatchStatus.MATCHED : MatchStatus.REVIEW;
     }
 
     /** 치수 기준 1순위 박스를 자동으로 저장한다. 직접 지정 사유는 비우고, 상태는 refreshMatch 기준을 따른다. */
