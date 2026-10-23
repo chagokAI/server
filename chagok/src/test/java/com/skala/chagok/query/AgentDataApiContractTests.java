@@ -43,11 +43,12 @@ class AgentDataApiContractTests {
 
     @Test void productShipmentsTakesIsoDates() throws Exception {
         when(service.productShipments(eq(warehouseId), eq(LocalDate.of(2026, 7, 23)), eq(LocalDate.of(2026, 10, 20)), isNull()))
-                .thenReturn(List.of(new ProductShipment(UUID.randomUUID(), "P-1", "상품", "가공식품 > 과자류", 375, 278, 77,
+                .thenReturn(List.of(new ProductShipment(UUID.randomUUID(), "P-1", "상품", "가공식품 > 과자류", 375, 278, 77, 342,
                         null, null, 120)));
         mvc.perform(get(path("/product-shipments")).param("from", "2026-07-23").param("to", "2026-10-20"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].shipments").value(120))
-                .andExpect(jsonPath("$.data[0].widthMm").value(375));
+                .andExpect(jsonPath("$.data[0].widthMm").value(375))
+                .andExpect(jsonPath("$.data[0].weightG").value(342));
     }
 
     @Test void saveProposalReturnsIdAndItemCount() throws Exception {

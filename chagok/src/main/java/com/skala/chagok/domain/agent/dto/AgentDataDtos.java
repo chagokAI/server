@@ -27,9 +27,10 @@ public final class AgentDataDtos {
     /** item_event status별 건수와 마지막 발생 시각. 에이전트가 입력 기준 시각·미처리 건수를 판단한다. */
     public record EventStats(Map<String, Long> countByStatus, Instant lastOccurredAt, long pendingEventCount) {}
 
+    /** weightG = 상품 실중량(g). 에이전트가 운임(부피·무게 중 큰 값)을 계산할 때 쓴다 */
     public record ProductShipment(UUID productId, String code, String name, String category, Integer widthMm,
-                                  Integer depthMm, Integer heightMm, String matchedBox, Double fillRatePct,
-                                  long shipments) {}
+                                  Integer depthMm, Integer heightMm, Integer weightG, String matchedBox,
+                                  Double fillRatePct, long shipments) {}
 
     public record MonthlyShipment(String month, long shipments) {}
 
