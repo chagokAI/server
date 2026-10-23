@@ -32,6 +32,9 @@ public interface ProductRepository extends JpaRepository<Product, UUID>, JpaSpec
     /** 일괄 재매칭 대상: 매칭 박스가 없는 활성 상품 */
     List<Product> findByWarehouseIdAndIsActiveTrueAndMatchedBoxSpecIsNull(UUID warehouseId);
 
+    /** 상태 재계산 대상: 매칭 박스가 있는 활성 상품 */
+    List<Product> findByWarehouseIdAndIsActiveTrueAndMatchedBoxSpecIsNotNull(UUID warehouseId);
+
     boolean existsByWarehouseIdAndBarcodeAndIdNot(UUID warehouseId, String barcode, UUID id);
 
     interface BoxProductCount {

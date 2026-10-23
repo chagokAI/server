@@ -130,6 +130,36 @@ public class ProductMatchService {
                 countStatus(targets, MatchStatus.UNMATCHED));
     }
 
+    /**
+     * 매칭 박스가 있는 활성 상품의 상태를 저장된 충전율·출처로 현재 기준에 맞춰 다시 판정한다.
+     * 박스와 충전율은 바꾸지 않는다. 상태가 달라진 상품만 저장돼 버전이 오르므로, 옛 버전으로 수정하던 화면은
+     * 덮어쓰지 못하고 충돌로 끝난다. 여러 번 실행해도 결과가 같다.
+     */
+    @Transactional
+    public StatusResync resyncStatuses(UUID warehouseId) {
+        warehouseRepository.lockById(warehouseId).orElseThrow(() -> BusinessException.notFound("센터"));
+        int checked = 0, toMatched = 0, toReview = 0, skipped = 0;
+        for (Product product : productRepository.findByWarehouseIdAndIsActiveTrueAndMatchedBoxSpecIsNotNull(warehouseId)) {
+            if (product.getFillRatePct() == null) {
+                skipped++;
+                continue;
+            }
+            checked++;
+            MatchStatus before = product.getMatchStatus();
+            product.refreshMatch(product.getFillRatePct());
+            if (product.getMatchStatus() != before) {
+                if (product.getMatchStatus() == MatchStatus.MATCHED) toMatched++;
+                else toReview++;
+            }
+        }
+        productRepository.flush();
+        return new StatusResync(checked, toMatched, toReview, skipped);
+    }
+
+    /** 상태 재판정 결과. skipped는 박스는 있지만 충전율이 없어 판정하지 못한 상품 수다. */
+    public record StatusResync(int checked, int toMatched, int toReview, int skipped) {
+    }
+
     private static int countStatus(List<Product> products, MatchStatus status) {
         return (int) products.stream().filter(product -> product.getMatchStatus() == status).count();
     }

@@ -105,6 +105,8 @@ chagok:
     tilted:
       enabled: false
       clearance-mm: 0
+    # 기준이 바뀐 DB에서 한 번만 켠다. 기동 시 모든 센터의 상품 매칭 상태를 현재 기준으로 다시 판정한다.
+    resync-statuses-on-startup: ${MATCH_STATUS_RESYNC_ON_STARTUP:false}
 
   auth:
     enabled: ${AUTH_ENABLED:true}
