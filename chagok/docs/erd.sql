@@ -4,6 +4,8 @@ CREATE TABLE `warehouse` (
                              `receiving_contact` VARCHAR(100),
                              `receiving_hours` VARCHAR(100),
                              `address` VARCHAR(255),
+                             `latitude` DOUBLE COMMENT '위도 (WGS84)',
+                             `longitude` DOUBLE COMMENT '경도 (WGS84)',
                              PRIMARY KEY (`id`)
 ) COMMENT = '물류센터';
 

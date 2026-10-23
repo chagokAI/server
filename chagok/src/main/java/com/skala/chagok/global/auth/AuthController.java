@@ -49,7 +49,7 @@ public class AuthController {
         if (!valid || user.getWarehouse() == null)
             throw new BusinessException(ErrorCode.UNAUTHENTICATED, "사번 또는 비밀번호가 올바르지 않습니다.");
         String role = user.getRole() == null ? "VIEWER" : user.getRole().toUpperCase(java.util.Locale.ROOT);
-        if (!List.of("VIEWER", "OPERATOR", "ADMIN").contains(role)) throw new BusinessException(ErrorCode.FORBIDDEN);
+        if (!List.of("VIEWER", "OPERATOR", "DIRECTOR").contains(role)) throw new BusinessException(ErrorCode.FORBIDDEN);
         var session = request.getSession(true);
         request.changeSessionId();
         session.setMaxInactiveInterval(Boolean.TRUE.equals(input.rememberMe()) ? 7 * 86400 : 1800);

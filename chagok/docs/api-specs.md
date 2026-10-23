@@ -6,7 +6,7 @@
 세션 로그인·센터/역할 검증, 입고·실사 조정, 공급사별 발주 초안·수정·승인·부분 입고를 제공한다.
 분석 작업 POST·재시도·정기 실행은 OBSERVATION_BASELINE 방식의 참고 계산이다.
 로그인·CSRF 토큰 조회·health 외 API는 로그인 필요. 조회·로그아웃·본인 알림 읽음은 VIEWER 이상,
-업무 변경은 OPERATOR/ADMIN이며 모든 센터 API는 로그인 사용자의 소속 센터로 제한한다.
+업무 변경은 OPERATOR/DIRECTOR이며 모든 센터 API는 로그인 사용자의 소속 센터로 제한한다.
 
 - [x] **AUTH-API-01** — `POST /api/v1/auth/login` — LoginInput → 200 UserSession, 세션 쿠키 / AUTH-01~02
 - [x] **AUTH-API-02** — `GET /api/v1/auth/me` — 없음 → 200 UserSession / AUTH-03
