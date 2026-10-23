@@ -65,11 +65,13 @@ public class SecurityConfig {
                         // SSE(AI 작업 진행 이벤트)의 비동기 디스패치는 첫 요청에서 이미 인가됐다
                         .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ASYNC).permitAll()
                         .requestMatchers("/api/v1/auth/csrf", "/api/v1/auth/login", "/actuator/health", "/error").permitAll()
+                        // 관리자 화면 전용 API는 조회도 DIRECTOR만 연다
+                        .requestMatchers("/api/v1/admin/**").hasRole("DIRECTOR")
                         .requestMatchers(HttpMethod.GET, "/api/v1/**").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/logout").authenticated()
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/warehouses/*/notifications/*/read").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/warehouses/*/notifications/read-all").authenticated()
-                        .requestMatchers("/api/v1/**").hasAnyRole("OPERATOR", "ADMIN")
+                        .requestMatchers("/api/v1/**").hasAnyRole("OPERATOR", "DIRECTOR")
                         .anyRequest().denyAll())
                 .exceptionHandling(errors -> errors
                         .authenticationEntryPoint((request, response, error) -> write(request, response, ErrorCode.UNAUTHENTICATED))

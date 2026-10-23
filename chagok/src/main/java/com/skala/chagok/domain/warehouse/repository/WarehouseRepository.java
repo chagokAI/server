@@ -19,4 +19,6 @@ public interface WarehouseRepository extends JpaRepository<Warehouse, UUID> {
 
     @Query("select w.id from Warehouse w order by w.id")
     List<UUID> findIds(Pageable pageable);
+
+    List<Warehouse> findAllByLatitudeIsNotNullAndLongitudeIsNotNullOrderByName();
 }

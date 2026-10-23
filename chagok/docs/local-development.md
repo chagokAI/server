@@ -81,7 +81,7 @@ DB 대기열 실행기는 1초마다 PENDING 작업을 하나 처리한다.
 ## 로그인과 최초 로컬 계정
 
 API 인증은 기본 활성화다. 기존 app_user에는 employee_no, BCrypt password_hash, warehouse_id,
-role=VIEWER/OPERATOR/ADMIN이 필요하다. 계정 등록 API는 제공하지 않는다.
+role=VIEWER/OPERATOR/DIRECTOR가 필요하다. 계정 등록 API는 제공하지 않는다.
 기본 세션은 30분, rememberMe=true는 쿠키·세션 유휴 기간을 7일로 설정한다.
 세션 저장소는 현재 서버 메모리이므로 Spring 재기동 시 다시 로그인해야 한다.
 

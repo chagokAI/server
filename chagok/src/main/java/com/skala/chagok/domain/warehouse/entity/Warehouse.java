@@ -39,4 +39,11 @@ public class Warehouse {
 
     @Column(name = "receiving_contact", length = 100)
     private String receivingContact;
+
+    // 관리자 지도에 센터 핀을 찍는 데 쓰는 WGS84 좌표
+    @Column(name = "latitude")
+    private Double latitude;
+
+    @Column(name = "longitude")
+    private Double longitude;
 }

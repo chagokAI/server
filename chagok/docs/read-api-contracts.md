@@ -231,7 +231,7 @@ CurrentUserProvider는 세션 사용자 ID로 본인을 조회한다. 명시적�
 절감액·전월/전년 비교는 근거가 없어 null이다. 재고 차감과 BoxSpec의 실제 소진일 갱신은 수행하지 않는다.
 
 설정: `chagok.jobs.scheduling-enabled`, `worker-enabled`, `cron`, `poll-delay`, `lookback-days`, `order-unit`, `timeout`.
-수동 접수·재시도는 OPERATOR/ADMIN, 상태 조회는 VIEWER 이상이며 소속 센터만 접근할 수 있다.
+수동 접수·재시도는 OPERATOR/DIRECTOR, 상태 조회는 VIEWER 이상이며 소속 센터만 접근할 수 있다.
 
 ## 검증과 스키마
 
