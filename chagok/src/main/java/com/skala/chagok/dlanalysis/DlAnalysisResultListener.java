@@ -27,14 +27,17 @@ class DlAnalysisResultListener {
     private final DlAnalysisItemEventRepository itemEvents;
     private final DlAnalysisResultRecorder recorder;
     private final DlMeasurementLog measurementLog;
+    private final org.springframework.context.ApplicationEventPublisher events;
 
     DlAnalysisResultListener(
             DlAnalysisItemEventRepository itemEvents,
             DlAnalysisResultRecorder recorder,
-            DlMeasurementLog measurementLog) {
+            DlMeasurementLog measurementLog,
+            org.springframework.context.ApplicationEventPublisher events) {
         this.itemEvents = itemEvents;
         this.recorder = recorder;
         this.measurementLog = measurementLog;
+        this.events = events;
     }
 
     @KafkaListener(topics = "${chagok.kafka.dl-analysis-result.topic}")
@@ -49,7 +52,8 @@ class DlAnalysisResultListener {
         DlAnalysisItemEventRepository.Snapshot snapshot = itemEvents.findSnapshot(eventId)
                 .orElseThrow(() -> new DlAnalysisException(DlAnalysisFailureReason.ORPHAN_MESSAGE,
                         "item_event 행 없음: eventId=" + eventId));
-        boolean waitingForPacking = ItemEventStatus.WAITING.name().equals(snapshot.getStatus());
+        boolean waitingForPacking = ItemEventStatus.WAITING.name().equals(snapshot.getStatus())
+                && !eventId.startsWith(DlAnalysisReplayFeeder.LIVE_EVENT_PREFIX);
         if (!ItemEventStatus.PENDING.name().equals(snapshot.getStatus())
                 && !(waitingForPacking && result.contractViolation() == null && result.known())) {
             log.info("DL 분석 결과 생략(이미 처리됨): eventId={}, status={}", eventId, snapshot.getStatus());
@@ -59,6 +63,8 @@ class DlAnalysisResultListener {
         if (result.contractViolation() == null && outcome != null && outcome.status() != null)
             itemEvents.recordMeasurement(eventId, measurement(result));
         measurementLog.write(eventId, result, outcome);
+        if (outcome != null && outcome.status() != null)
+            events.publishEvent(new DlAnalysisSettledEvent(eventId, snapshot.getWarehouseId()));
     }
 
     private static Map<String, Object> measurement(DlAnalysisResult result) {

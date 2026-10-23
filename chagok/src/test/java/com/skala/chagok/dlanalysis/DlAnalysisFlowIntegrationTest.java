@@ -62,13 +62,103 @@ import tools.jackson.databind.json.JsonMapper;
  * 결과 토픽에 JSON 문자열을 직접 보내는 가짜 Worker를 둔다. Python Worker가 보내는 것과 같은 형태(타입 헤더 없는
  * 평범한 JSON)로 보내야 계약을 시험할 수 있기 때문이다. 테스트가 만든 행은 끝날 때 지운다.
  */
-@SpringBootTest
+@SpringBootTest(properties = {"chagok.live.feeder.enabled=true", "chagok.live.feeder.interval-ms=3600000"})
 @AutoConfigureMockMvc
 @EmbeddedKafka(
         brokerProperties = {"auto.create.topics.enable=false", "group.initial.rebalance.delay.ms=0",
                 "log.segment.bytes=10485760", "log.index.size.max.bytes=1048576", "offsets.topic.num.partitions=3"},
         bootstrapServersProperty = "spring.kafka.bootstrap-servers")
 class DlAnalysisFlowIntegrationTest {
+
+    @Test void liveInputStatusStartsPausedWithoutChangingStock() throws Exception {
+        mvc.perform(get("/api/v1/warehouses/" + warehouseId + "/live-input"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.running").value(false));
+        assertThat(stock(boxSpecId)).isEqualTo(100);
+    }
+
+    @Autowired private DlAnalysisReplayFeeder controlledFeeder;
+
+    @Test void onlyPlayStartsPackingAndPauseStopsNewConsumptionWhileSubscriptionsRemainOpen() throws Exception {
+        String original = accept();
+        awaitRequest(original);
+        jdbc.update("""
+                insert into dl_measurement_sample(event_id,run,bundle_id,expected_barcode,dl_status,dl_barcode,
+                    size_type,width_cm,depth_cm,height_cm,volume_cm3,latency_ms,measured_at)
+                values (?,1,'controlled',?,'known',?,'measured',23.9,8.0,3.4,650.1,10,?)
+                """, original, BARCODE, BARCODE, java.sql.Timestamp.from(Instant.now()));
+        mvc.perform(get("/api/v1/warehouses/" + warehouseId + "/live-stream").accept("text/event-stream"))
+                .andExpect(request().asyncStarted());
+        controlledFeeder.tick();
+        assertThat(stock(boxSpecId)).isEqualTo(100);
+        assertThat(movementCount()).isZero();
+        String path = "/api/v1/warehouses/" + warehouseId + "/live-input";
+        var session = new org.springframework.mock.web.MockHttpSession();
+        mvc.perform(put(path).session(session).contentType("application/json").content("{\"running\":true}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.running").value(true));
+        controlledFeeder.tick();
+        await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> assertThat(stock(boxSpecId)).isEqualTo(99));
+        mvc.perform(put(path).session(session).contentType("application/json").content("{\"running\":false}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.running").value(false))
+                .andExpect(jsonPath("$.data.pending").value(0));
+        controlledFeeder.tick();
+        controlledFeeder.tick();
+        assertThat(stock(boxSpecId)).isEqualTo(99);
+        assertThat(movementCount()).isEqualTo(1);
+    }
+
+    @Test void pauseReportsPendingWorkUntilTheAcceptedEventIsSettled() throws Exception {
+        String id = "live-" + UUID.randomUUID();
+        jdbc.update("insert into item_event(event_id,occurred_at,warehouse_id,status) values (?,now(),?,'PENDING')", id, warehouseId);
+        String path = "/api/v1/warehouses/" + warehouseId + "/live-input";
+        mvc.perform(put(path).session(new org.springframework.mock.web.MockHttpSession()).contentType("application/json").content("{\"running\":false}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.running").value(false))
+                .andExpect(jsonPath("$.data.pending").value(1));
+        jdbc.update("update item_event set status='FAILED' where event_id=?", id);
+        mvc.perform(get(path)).andExpect(status().isOk()).andExpect(jsonPath("$.data.pending").value(0));
+    }
+
+    @Test void sessionExpiryStopsItsOwnInputButNotANewerOperatorsRun() throws Exception {
+        String path = "/api/v1/warehouses/" + warehouseId + "/live-input";
+        var first = new org.springframework.mock.web.MockHttpSession();
+        var second = new org.springframework.mock.web.MockHttpSession();
+        mvc.perform(put(path).session(first).contentType("application/json").content("{\"running\":true}"))
+                .andExpect(status().isOk());
+        mvc.perform(put(path).session(second).contentType("application/json").content("{\"running\":true}"))
+                .andExpect(status().isOk());
+        first.invalidate();
+        mvc.perform(get(path)).andExpect(status().isOk()).andExpect(jsonPath("$.data.running").value(true));
+        second.invalidate();
+        mvc.perform(get(path)).andExpect(status().isOk()).andExpect(jsonPath("$.data.running").value(false));
+    }
+
+    @Test void leavingAnOldViewDoesNotStopANewerOperatorsRun() throws Exception {
+        String path = "/api/v1/warehouses/" + warehouseId + "/live-input";
+        var first = new org.springframework.mock.web.MockHttpSession();
+        var second = new org.springframework.mock.web.MockHttpSession();
+        mvc.perform(put(path).session(first).contentType("application/json").content("{\"running\":true}"))
+                .andExpect(status().isOk());
+        mvc.perform(put(path).session(second).contentType("application/json").content("{\"running\":true}"))
+                .andExpect(status().isOk());
+        mvc.perform(put(path).session(first).contentType("application/json").content("{\"running\":false,\"ownedOnly\":true}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.running").value(true));
+        mvc.perform(put(path).session(second).contentType("application/json").content("{\"running\":false,\"ownedOnly\":true}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.running").value(false));
+    }
+
+    @Test void anOldViewCannotStopANewViewInTheSameBrowserSession() throws Exception {
+        String path = "/api/v1/warehouses/" + warehouseId + "/live-input";
+        var session = new org.springframework.mock.web.MockHttpSession();
+        mvc.perform(put(path).session(session).contentType("application/json").content("{\"running\":true,\"controlId\":\"old-view\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(put(path).session(session).contentType("application/json").content("{\"running\":true,\"controlId\":\"new-view\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(put(path).session(session).contentType("application/json").content("{\"running\":false,\"ownedOnly\":true,\"controlId\":\"old-view\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.running").value(true));
+        session.invalidate();
+        mvc.perform(get(path)).andExpect(status().isOk()).andExpect(jsonPath("$.data.running").value(false));
+    }
+
+    @AfterEach void stopControlledInput() { controlledFeeder.setRunning(warehouseId, false, "cleanup"); }
 
     private static final String BARCODE = "8809037045013";
     private static final JsonMapper JSON = JsonMapper.builder().build();
@@ -82,6 +172,13 @@ class DlAnalysisFlowIntegrationTest {
 
     @Autowired
     private DlAnalysisResultListener resultListener;
+
+    @Autowired private DlAnalysisReplaySource replaySource;
+    @Autowired private DlAnalysisResultProducer resultProducer;
+    @Autowired private DlAnalysisItemEventRepository eventRepository;
+    @Autowired private jakarta.persistence.EntityManager entityManager;
+    @Autowired private org.springframework.core.env.Environment environment;
+    @Autowired private com.skala.chagok.live.LiveResetService liveReset;
 
     @Autowired
     private com.skala.chagok.domain.product.service.ProductMatchService productMatches;
@@ -163,11 +260,12 @@ class DlAnalysisFlowIntegrationTest {
 
     @AfterEach
     void deleteInsertedRows() {
+        jdbc.update("delete from dl_measurement_sample where event_id in (select event_id from item_event where warehouse_id=?)", warehouseId);
         jdbc.update("delete from procurement_proposal_item where proposal_id in (select id from procurement_proposal where warehouse_id=?)", warehouseId);
         jdbc.update("delete from procurement_proposal where warehouse_id=?", warehouseId);
         jdbc.update("delete from cost_forecast where warehouse_id=?", warehouseId);
         jdbc.update("delete from analysis_job where warehouse_id=?", warehouseId);
-        eventIds.forEach(id -> jdbc.update("delete from item_event where event_id = ?", id));
+        jdbc.update("delete from item_event where warehouse_id = ?", warehouseId);
         jdbc.update("delete from inventory_movement where warehouse_id = ?", warehouseId);
         jdbc.update("delete from product where id = ?", productId);
         jdbc.update("delete from box_spec where warehouse_id = ?", warehouseId);
@@ -275,12 +373,16 @@ class DlAnalysisFlowIntegrationTest {
 
     @Test
     void unreadableResultEndsAsFailedInsteadOfStayingPending() throws Exception {
+        var response = mvc.perform(get("/api/v1/warehouses/" + warehouseId + "/live-stream").accept("text/event-stream"))
+                .andExpect(request().asyncStarted()).andReturn().getResponse();
         String eventId = accept();
         reply(eventId, "{\"schemaVersion\": 1, \"eventId\": ");
 
         assertThat(awaitFinished(eventId).get("status")).isEqualTo("FAILED");
         await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(measurementLine(eventId))
                 .contains("\"reason\":\"INVALID_RESULT\""));
+        await().atMost(Duration.ofSeconds(3)).untilAsserted(() -> assertThat(response.getContentAsString())
+                .contains("event:failed", "INVALID_RESULT", eventId));
     }
 
     @Test
@@ -330,6 +432,70 @@ class DlAnalysisFlowIntegrationTest {
         assertThat(movement).containsEntry("type", "CONSUMPTION").containsEntry("delta_qty", -1L)
                 .containsEntry("before_qty", 100).containsEntry("after_qty", 99);
         assertThat(jdbc.queryForObject("select version from box_spec where id=?", Integer.class, boxSpecId)).isEqualTo(1);
+    }
+
+    @Test
+    void streamPublishesCommittedOutcomesAndActualStockWithoutDuplicatePacking() throws Exception {
+        var response = mvc.perform(get("/api/v1/warehouses/" + warehouseId + "/live-stream")
+                        .accept(org.springframework.http.MediaType.TEXT_EVENT_STREAM))
+                .andExpect(request().asyncStarted()).andReturn().getResponse();
+        String packed = accept();
+        resultListener.onResult(knownResult(packed));
+        resultListener.onResult(knownResult(packed));
+        assertThat(response.getContentAsString()).contains("event:packed", "\"onHandQty\":99", packed);
+        assertThat(response.getContentAsString()).contains("\"version\":1");
+        assertThat(response.getContentAsString().split("event:packed", -1)).hasSize(2);
+
+        jdbc.update("update box_spec set on_hand_qty=0 where id=?", boxSpecId);
+        String waiting = accept();
+        resultListener.onResult(knownResult(waiting));
+        assertThat(response.getContentAsString()).contains("event:waiting", "NO_AVAILABLE_BOX", waiting);
+
+        String failedId = accept();
+        resultListener.onResult(JSON.readValue(unknown(failedId), DlAnalysisResult.class));
+        assertThat(response.getContentAsString()).contains("event:failed", "UNKNOWN_ITEM", failedId);
+    }
+
+    @Test void replayUsesOnlyTheResultTopicAndTheSamePackingPathThenWrapsItsCursor() throws Exception {
+        String original = accept();
+        awaitRequest(original);
+        jdbc.update("""
+                insert into dl_measurement_sample(event_id,run,bundle_id,expected_barcode,dl_status,dl_barcode,
+                    size_type,width_cm,depth_cm,height_cm,volume_cm3,latency_ms,measured_at)
+                values (?,1,'synthetic',?,'known',?,'measured',23.9,8.0,3.4,650.1,10,?)
+                """, original, BARCODE, BARCODE, java.sql.Timestamp.from(Instant.now()));
+        var feeder = new DlAnalysisReplayFeeder(replaySource, resultProducer, eventRepository, entityManager,
+                environment.getRequiredProperty("spring.datasource.url"), false);
+        feeder.setRunning(warehouseId, true, "test-session");
+        feeder.tick();
+        await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> assertThat(
+                jdbc.queryForObject("select count(*) from item_event where warehouse_id=? and event_id like 'live-%' and status='SUCCEEDED'", Integer.class, warehouseId)).isEqualTo(1));
+        assertThat(stock(boxSpecId)).isEqualTo(99);
+        assertThat(movementCount()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select image_refs::text from item_event where warehouse_id=? and event_id like 'live-%'", String.class, warehouseId)).isEqualTo("[]");
+        assertThat(fakeWorkerConsumer.poll(Duration.ofMillis(500)).count()).isZero();
+        feeder.setRunning(warehouseId, true, "test-session");
+        feeder.tick();
+        await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> assertThat(movementCount()).isEqualTo(2));
+        assertThat(stock(boxSpecId)).isEqualTo(98);
+        liveReset.reset(warehouseId);
+    }
+
+    @Test void resetUndoesOnlyLiveConsumptionAndIsIdempotent() throws Exception {
+        String ordinary = accept();
+        resultListener.onResult(knownResult(ordinary));
+        String live = "live-" + UUID.randomUUID();
+        jdbc.update("insert into item_event(event_id,occurred_at,warehouse_id,status) values (?,now(),?,'PENDING')", live, warehouseId);
+        resultListener.onResult(knownResult(live));
+        assertThat(stock(boxSpecId)).isEqualTo(98);
+
+        liveReset.reset(warehouseId);
+        liveReset.reset(warehouseId);
+
+        assertThat(stock(boxSpecId)).isEqualTo(99);
+        assertThat(movementCount()).isEqualTo(1);
+        assertThat(statusOf(ordinary)).isEqualTo("SUCCEEDED");
+        assertThat(jdbc.queryForObject("select count(*) from item_event where warehouse_id=? and event_id like 'live-%'", Integer.class, warehouseId)).isZero();
     }
 
     @Test
@@ -384,6 +550,19 @@ class DlAnalysisFlowIntegrationTest {
         assertThat(stock(boxSpecId)).isZero();
         assertThat(movementCount()).isEqualTo(1);
         assertThat(jdbc.queryForObject("select failure_reason from item_event where event_id=?", String.class, id)).isNull();
+    }
+
+    @Test void liveWaitingCannotConsumeStockFromALateDuplicateAfterPause() {
+        jdbc.update("update box_spec set on_hand_qty=0 where id=?", boxSpecId);
+        String id = "live-" + UUID.randomUUID();
+        jdbc.update("insert into item_event(event_id,occurred_at,warehouse_id,status) values (?,now(),?,'PENDING')", id, warehouseId);
+        resultListener.onResult(knownResult(id));
+        assertThat(statusOf(id)).isEqualTo("WAITING");
+        jdbc.update("update box_spec set on_hand_qty=5 where id=?", boxSpecId);
+        resultListener.onResult(knownResult(id));
+        assertThat(statusOf(id)).isEqualTo("WAITING");
+        assertThat(stock(boxSpecId)).isEqualTo(5);
+        assertThat(movementCount()).isZero();
     }
 
     @Test
@@ -456,6 +635,9 @@ class DlAnalysisFlowIntegrationTest {
 
     @Test
     void measurementFailureRollsBackEventStockAndLedger() throws Exception {
+        var response = mvc.perform(get("/api/v1/warehouses/" + warehouseId + "/live-stream")
+                        .accept(org.springframework.http.MediaType.TEXT_EVENT_STREAM))
+                .andExpect(request().asyncStarted()).andReturn().getResponse();
         String id = accept();
         jdbc.execute("alter table item_event add constraint packing_test_measurement_failure check (event_id <> '" + id + "' or measurement is null)");
         try {
@@ -464,6 +646,7 @@ class DlAnalysisFlowIntegrationTest {
             assertThat(statusOf(id)).isEqualTo("PENDING");
             assertThat(stock(boxSpecId)).isEqualTo(100);
             assertThat(movementCount()).isZero();
+            assertThat(response.getContentAsString()).doesNotContain("event:packed");
         } finally {
             jdbc.execute("alter table item_event drop constraint packing_test_measurement_failure");
         }
@@ -471,6 +654,7 @@ class DlAnalysisFlowIntegrationTest {
         assertThat(statusOf(id)).isEqualTo("SUCCEEDED");
         assertThat(stock(boxSpecId)).isEqualTo(99);
         assertThat(movementCount()).isEqualTo(1);
+        assertThat(response.getContentAsString()).contains("event:packed");
     }
 
     @Test

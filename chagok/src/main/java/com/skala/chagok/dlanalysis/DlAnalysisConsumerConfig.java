@@ -39,12 +39,14 @@ class DlAnalysisConsumerConfig {
     private static final FixedBackOff NO_RETRY = new FixedBackOff(0L, 0L);
 
     @Bean
-    DefaultErrorHandler dlAnalysisErrorHandler(DlAnalysisResultRecorder recorder, DlMeasurementLog measurementLog) {
+    DefaultErrorHandler dlAnalysisErrorHandler(DlAnalysisResultRecorder recorder, DlMeasurementLog measurementLog,
+            org.springframework.transaction.support.TransactionTemplate transactions,
+            DlAnalysisItemEventRepository itemEvents, org.springframework.context.ApplicationEventPublisher events) {
         // spring-kafka의 FailedRecordTracker는 기본 백오프가 「재시도 없음」이면 백오프 함수를 보지 않고 곧바로 복구한다.
         // 그러면 저장보다 먼저 도착한 결과가 재시도 없이 고아로 버려진다(통합 테스트에서 확인). 그래서 기본 백오프는
         // 재시도가 있는 값으로 두고, 재시도하지 않을 예외는 함수가 NO_RETRY를 돌려주게 했다.
         DefaultErrorHandler handler = new DefaultErrorHandler(
-                (record, exception) -> recover(recorder, measurementLog, record, exception), ORPHAN_BACK_OFF);
+                (record, exception) -> recover(recorder, measurementLog, transactions, itemEvents, events, record, exception), ORPHAN_BACK_OFF);
         handler.setBackOffFunction((record, exception) -> backOffFor(exception));
         return handler;
     }
@@ -62,6 +64,9 @@ class DlAnalysisConsumerConfig {
     private static void recover(
             DlAnalysisResultRecorder recorder,
             DlMeasurementLog measurementLog,
+            org.springframework.transaction.support.TransactionTemplate transactions,
+            DlAnalysisItemEventRepository itemEvents,
+            org.springframework.context.ApplicationEventPublisher events,
             ConsumerRecord<?, ?> record,
             Exception exception) {
         String eventId = record.key() == null ? null : String.valueOf(record.key());
@@ -70,8 +75,15 @@ class DlAnalysisConsumerConfig {
             return;
         }
         if (isDeserializationFailure(exception) && eventId != null) {
-            DlAnalysisOutcome outcome = recorder.recordFailure(
-                    eventId, DlAnalysisFailureReason.INVALID_RESULT, "결과 메시지를 읽을 수 없다: " + exception.getMessage());
+            // 역직렬화 실패는 onResult를 거치지 않는다. 실패 기록과 알림 예약도 한 트랜잭션에 넣어 확정 후만 전달한다.
+            DlAnalysisOutcome outcome = transactions.execute(status -> {
+                var settled = recorder.recordFailure(eventId, DlAnalysisFailureReason.INVALID_RESULT,
+                        "결과 메시지를 읽을 수 없다: " + exception.getMessage());
+                if (settled != null && settled.status() != null)
+                    itemEvents.findSnapshot(eventId).ifPresent(snapshot ->
+                            events.publishEvent(new DlAnalysisSettledEvent(eventId, snapshot.getWarehouseId())));
+                return settled;
+            });
             measurementLog.write(eventId, null, outcome);
             return;
         }

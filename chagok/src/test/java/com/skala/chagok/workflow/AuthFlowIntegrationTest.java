@@ -20,6 +20,8 @@ class AuthFlowIntegrationTest {
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
     @Autowired PasswordEncoder passwords;
+    @Autowired jakarta.persistence.EntityManager entities;
+    @Autowired com.skala.chagok.live.LiveStreamHub liveStreams;
     final UUID warehouse = UUID.randomUUID(), user = UUID.randomUUID();
     final String employee = "auth-" + UUID.randomUUID().toString().substring(0, 12);
     final JsonMapper json = JsonMapper.builder().build();
@@ -87,6 +89,33 @@ class AuthFlowIntegrationTest {
                 .andExpect(status().isForbidden()).andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
     }
 
+    @Test void liveStreamRequiresLoginAndTheUsersOwnWarehouse() throws Exception {
+        mvc.perform(get("/api/v1/warehouses/" + warehouse + "/live-stream").accept("text/event-stream"))
+                .andExpect(status().isUnauthorized());
+        var browser = login(false);
+        mvc.perform(get("/api/v1/warehouses/" + UUID.randomUUID() + "/live-stream").accept("text/event-stream")
+                .session(browser.session())).andExpect(status().isForbidden());
+    }
+
+    @Test void liveInputControlsRequireOwnWarehouseOperatorAndCsrf() throws Exception {
+        String path = "/api/v1/warehouses/" + warehouse + "/live-input";
+        mvc.perform(get(path)).andExpect(status().isUnauthorized());
+        var browser = login(false);
+        mvc.perform(get(path).session(browser.session())).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.available").value(false));
+        mvc.perform(put(path).session(browser.session()).contentType("application/json").content("{\"running\":true}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(put("/api/v1/warehouses/" + UUID.randomUUID() + "/live-input").session(browser.session())
+                .header(browser.header(), browser.token()).contentType("application/json").content("{\"running\":true}"))
+                .andExpect(status().isForbidden());
+        jdbc.update("update app_user set role='VIEWER' where id=?", user);
+        entities.clear();
+        browser = login(false);
+        mvc.perform(put(path).session(browser.session()).header(browser.header(), browser.token())
+                .contentType("application/json").content("{\"running\":true}"))
+                .andExpect(status().isForbidden());
+    }
+
     @Test void logoutInvalidatesSessionAndRememberMeSetsCookieLifetime() throws Exception {
         var browser = login(true);
         assertThat(browser.session().getMaxInactiveInterval()).isEqualTo(7 * 86400);
@@ -94,6 +123,20 @@ class AuthFlowIntegrationTest {
                 .andExpect(status().isNoContent()).andExpect(header().string("Set-Cookie", org.hamcrest.Matchers.containsString("Max-Age=0")));
         assertThat(browser.session().isInvalid()).isTrue();
         mvc.perform(get("/api/v1/auth/me")).andExpect(status().isUnauthorized());
+    }
+
+    @Test void logoutClosesExistingLiveSubscriptionsFromOtherTabs() throws Exception {
+        var browser = login(false);
+        var response = mvc.perform(get("/api/v1/warehouses/" + warehouse + "/live-stream")
+                        .session(browser.session()).accept("text/event-stream"))
+                .andExpect(request().asyncStarted()).andReturn().getResponse();
+        assertThat(liveStreams.hasSubscribers(warehouse)).isTrue();
+        String before = response.getContentAsString();
+        mvc.perform(post("/api/v1/auth/logout").session(browser.session()).header(browser.header(), browser.token()))
+                .andExpect(status().isNoContent());
+        assertThat(liveStreams.hasSubscribers(warehouse)).isFalse();
+        liveStreams.publish(warehouse, "snapshot", Map.of("secret", "must not arrive"));
+        assertThat(response.getContentAsString()).isEqualTo(before);
     }
 
     @Test void onlyConfiguredBrowserOriginsPassCorsPreflight() throws Exception {
