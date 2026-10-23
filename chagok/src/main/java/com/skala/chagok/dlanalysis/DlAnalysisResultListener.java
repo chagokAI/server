@@ -49,7 +49,9 @@ class DlAnalysisResultListener {
         DlAnalysisItemEventRepository.Snapshot snapshot = itemEvents.findSnapshot(eventId)
                 .orElseThrow(() -> new DlAnalysisException(DlAnalysisFailureReason.ORPHAN_MESSAGE,
                         "item_event 행 없음: eventId=" + eventId));
-        if (!ItemEventStatus.PENDING.name().equals(snapshot.getStatus())) {
+        boolean waitingForPacking = ItemEventStatus.WAITING.name().equals(snapshot.getStatus());
+        if (!ItemEventStatus.PENDING.name().equals(snapshot.getStatus())
+                && !(waitingForPacking && result.contractViolation() == null && result.known())) {
             log.info("DL 분석 결과 생략(이미 처리됨): eventId={}, status={}", eventId, snapshot.getStatus());
             return;
         }

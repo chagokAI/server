@@ -6,6 +6,8 @@ import java.util.UUID;
 import java.util.Map;
 
 import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Lock;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
@@ -28,11 +30,16 @@ interface DlAnalysisItemEventRepository extends Repository<ItemEvent, ItemEventI
     @Query("select e.status as status, e.warehouse.id as warehouseId from ItemEvent e where e.id.eventId = :eventId")
     Optional<Snapshot> findSnapshot(@Param("eventId") String eventId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select e from ItemEvent e where e.id.eventId = :eventId")
+    Optional<ItemEvent> findForUpdate(@Param("eventId") String eventId);
+
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
             update ItemEvent e
-               set e.product = :product, e.boxSpec = :boxSpec, e.fillRatePct = :fillRatePct, e.status = :to
-             where e.id.eventId = :eventId and e.status = :from
+               set e.product = :product, e.boxSpec = :boxSpec, e.fillRatePct = :fillRatePct, e.status = :to,
+                   e.failureReason = null, e.failureMessage = null
+             where e.id.eventId = :eventId and e.status in (:from, 'WAITING')
             """)
     int completeIfInStatus(
             @Param("eventId") String eventId,
@@ -50,6 +57,13 @@ interface DlAnalysisItemEventRepository extends Repository<ItemEvent, ItemEventI
     @Query("update ItemEvent e set e.status = 'FAILED', e.failureReason = :reason, e.failureMessage = :detail "
             + "where e.id.eventId = :eventId and e.status = 'PENDING'")
     int failWithReason(@Param("eventId") String eventId, @Param("reason") String reason, @Param("detail") String detail);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update ItemEvent e set e.status = 'WAITING', e.product = :product, e.boxSpec = null, "
+            + "e.fillRatePct = null, e.failureReason = :reason, e.failureMessage = :detail "
+            + "where e.id.eventId = :eventId and e.status in ('PENDING', 'WAITING')")
+    int waitForPacking(@Param("eventId") String eventId, @Param("product") Product product,
+            @Param("reason") String reason, @Param("detail") String detail);
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("update ItemEvent e set e.measurement = :measurement where e.id.eventId = :eventId "

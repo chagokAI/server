@@ -16,6 +16,10 @@ public record DlAnalysisOutcome(ItemEventStatus status, DlAnalysisFailureReason 
         return new DlAnalysisOutcome(ItemEventStatus.FAILED, reason);
     }
 
+    static DlAnalysisOutcome waiting(DlAnalysisFailureReason reason) {
+        return new DlAnalysisOutcome(ItemEventStatus.WAITING, reason);
+    }
+
     static DlAnalysisOutcome skipped() {
         return new DlAnalysisOutcome(null, null);
     }

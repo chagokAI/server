@@ -25,6 +25,17 @@ public class ProductMatchingService {
         return candidates(product, activeBoxes(product));
     }
 
+    /** 실제 포장 후보는 확인된 현재고가 있는 박스만 사용한다. 상품 기본 추천은 바꾸지 않는다. */
+    public List<MatchCandidateResponse> packingCandidates(Product product) {
+        var available = activeBoxes(product).stream()
+                .filter(box -> box.getOnHandQty() != null && box.getOnHandQty() > 0)
+                .filter(box -> !SOURCE_MANUAL.equals(product.getMatchSource())
+                        || product.getMatchedBoxSpec() != null
+                        && product.getMatchedBoxSpec().getId().equals(box.getId()))
+                .toList();
+        return candidates(product, available);
+    }
+
     /** 후보 목록. 1순위(recommended)는 applyBestCandidate가 저장하는 박스와 항상 같다. */
     public List<MatchCandidateResponse> candidates(Product product, List<BoxSpec> activeBoxes) {
         var ranked = ranked(product, activeBoxes);
