@@ -3,6 +3,7 @@ package com.skala.chagok.workflow;
 import com.skala.chagok.domain.box.dto.BoxSnapshot;
 import com.skala.chagok.domain.box.entity.BoxSpec;
 import com.skala.chagok.domain.procurement.entity.*;
+import com.skala.chagok.domain.product.service.ProductMatchService;
 import com.skala.chagok.domain.purchase.service.PurchaseOrderQueryService;
 import com.skala.chagok.domain.user.entity.AppUser;
 import com.skala.chagok.domain.warehouse.entity.Warehouse;
@@ -32,6 +33,7 @@ class SpringWorkflowIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired EntityManager em;
     @Autowired PurchaseOrderQueryService queries;
+    @Autowired ProductMatchService productMatches;
     @MockitoBean CurrentUserProvider users;
     final UUID warehouse = UUID.randomUUID(), box = UUID.randomUUID(), product = UUID.randomUUID(),
             supplier = UUID.randomUUID(), user = UUID.randomUUID();
@@ -198,10 +200,10 @@ class SpringWorkflowIntegrationTest {
     @Test void dimensionChangeAppliesTheTopCandidateToNonManualProducts() throws Exception {
         UUID tight = insertBox("S-0", 110, 110, 60);
         UUID item = insertUnmatchedProduct("SKU-2", null, null, null);
-        var result = patchJson("/products/" + item, Map.of("expectedVersion", 0, "widthMm", 100, "depthMm", 100, "heightMm", 50), 200);
+        var result = patchJson("/products/" + item, Map.of("expectedVersion", 0, "widthMm", 100, "depthMm", 100, "heightMm", 30), 200);
         assertThat(result.path("matchedBoxSpec").path("id").asText()).isEqualTo(tight.toString());
         assertThat(result.path("matchSource").asText()).isEqualTo("DIMENSIONS");
-        assertThat(result.path("fillRatePct").decimalValue()).isEqualByComparingTo("68.87");
+        assertThat(result.path("fillRatePct").decimalValue()).isEqualByComparingTo("41.32");
         assertThat(result.path("matchStatus").asText()).isEqualTo("REVIEW");
         assertThat(result.path("matchCandidates").get(0).path("boxSpec").path("id").asText()).isEqualTo(tight.toString());
         result = patchJson("/products/" + item, Map.of("expectedVersion", result.path("version").asInt(),
@@ -227,6 +229,49 @@ class SpringWorkflowIntegrationTest {
         assertThat(jdbc.queryForObject("select match_source from product where code='SKU-FIT'", String.class)).isEqualTo("DIMENSIONS");
         assertThat(jdbc.queryForObject("select match_source from product where id=?", String.class, product)).isEqualTo("MANUAL");
         assertThat(postJson("/product-matches/recalculate", Map.of(), 200).path("targetCount").asInt()).isEqualTo(2);
+    }
+
+    UUID insertMatchedProduct(String code, String fill, String status, String source, boolean active) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+                insert into product(id,warehouse_id,code,name,width_mm,depth_mm,height_mm,matched_box_spec_id,
+                    fill_rate_pct,match_status,match_source,is_active,version)
+                values (?,?,?,?,100,100,50,?,cast(? as numeric),?,?,?,0)
+                """, id, warehouse, code, code, box, fill, status, source, active);
+        return id;
+    }
+    String statusOf(UUID id) { return jdbc.queryForObject("select match_status from product where id=?", String.class, id); }
+    int productVersion(UUID id) { return jdbc.queryForObject("select version from product where id=?", Integer.class, id); }
+
+    @Test void statusResyncAppliesTheCurrentThresholdWithoutChangingBoxesOrUntouchedRows() {
+        UUID raised = insertMatchedProduct("SKU-60", "60.00", "REVIEW", "DIMENSIONS", true);
+        UUID lowered = insertMatchedProduct("SKU-40", "40.00", "MATCHED", "DIMENSIONS", true);
+        UUID low = insertMatchedProduct("SKU-30", "30.00", "REVIEW", "DIMENSIONS", true);
+        UUID tilted = insertMatchedProduct("SKU-TILT", "90.00", "REVIEW", "TILTED", true);
+        UUID noRate = insertMatchedProduct("SKU-NORATE", null, "REVIEW", "DIMENSIONS", true);
+        UUID inactive = insertMatchedProduct("SKU-OFF", "60.00", "REVIEW", "DIMENSIONS", false);
+        UUID unmatched = insertUnmatchedProduct("SKU-NONE", 10, 10, 10);
+
+        var result = productMatches.resyncStatuses(warehouse);
+
+        // 기본 fixture의 직접 지정 상품(16.67%)과 위의 60·40·30·TILTED 네 개를 다시 판정한다.
+        assertThat(result).isEqualTo(new ProductMatchService.StatusResync(5, 1, 1, 1));
+        assertThat(statusOf(raised)).isEqualTo("MATCHED");
+        assertThat(statusOf(lowered)).isEqualTo("REVIEW");
+        assertThat(statusOf(low)).isEqualTo("REVIEW");
+        assertThat(statusOf(tilted)).isEqualTo("REVIEW");
+        assertThat(statusOf(product)).isEqualTo("MATCHED");
+        assertThat(statusOf(noRate)).isEqualTo("REVIEW");
+        assertThat(statusOf(inactive)).isEqualTo("REVIEW");
+        assertThat(statusOf(unmatched)).isEqualTo("UNMATCHED");
+        assertThat(productVersion(raised)).isEqualTo(1);
+        assertThat(productVersion(lowered)).isEqualTo(1);
+        assertThat(List.of(productVersion(low), productVersion(tilted), productVersion(product), productVersion(noRate),
+                productVersion(inactive), productVersion(unmatched))).containsOnly(0);
+        assertThat(jdbc.queryForMap("select matched_box_spec_id, fill_rate_pct from product where id=?", raised))
+                .containsEntry("matched_box_spec_id", box).containsEntry("fill_rate_pct", new java.math.BigDecimal("60.00"));
+
+        assertThat(productMatches.resyncStatuses(warehouse)).isEqualTo(new ProductMatchService.StatusResync(5, 0, 0, 1));
     }
 
     @Test void safetyDaysArePersistedAndCalculatedFromAvailableReferenceWithoutClaimingActualConsumption() throws Exception {

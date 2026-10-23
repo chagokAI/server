@@ -409,6 +409,19 @@ class DlAnalysisFlowIntegrationTest {
     }
 
     @Test
+    void candidateAtHalfFillRateIsPackedUnderTheCurrentThreshold() throws Exception {
+        // 상품 239×80×34mm, 박스 239×80×68mm → 충전율 50%. 85% 기준에서는 검토 대기였고 45% 기준에서는 포장한다.
+        jdbc.update("update box_spec set inner_height_mm=68 where id=?", boxSpecId);
+        String id = accept();
+        resultListener.onResult(knownResult(id));
+        assertThat(awaitFinished(id)).containsEntry("box_spec_id", boxSpecId);
+        assertThat(jdbc.queryForObject("select fill_rate_pct from item_event where event_id=?", java.math.BigDecimal.class, id))
+                .isEqualByComparingTo("50.00");
+        assertThat(stock(boxSpecId)).isEqualTo(99);
+        assertThat(movementCount()).isEqualTo(1);
+    }
+
+    @Test
     void lowFillRateCandidateWaitsForReviewWithoutConsumption() throws Exception {
         jdbc.update("update box_spec set inner_width_mm=1000, inner_depth_mm=1000, inner_height_mm=1000 where id=?", boxSpecId);
         String id = accept();
