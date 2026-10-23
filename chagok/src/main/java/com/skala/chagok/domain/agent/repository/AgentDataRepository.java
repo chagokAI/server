@@ -52,7 +52,7 @@ public class AgentDataRepository {
         var params = new HashMap<String, Object>(Map.of("wh", warehouseId, "from", Timestamp.from(from),
                 "to", Timestamp.from(to)));
         String filter = statusFilter(statuses, params);
-        String sql = "select p.id, p.code, p.name, c.name as category, p.width_mm, p.depth_mm, p.height_mm, "
+        String sql = "select p.id, p.code, p.name, c.name as category, p.width_mm, p.depth_mm, p.height_mm, p.weight_g, "
                 + "bs.code as matched_box, p.fill_rate_pct, coalesce(e.cnt, 0) as shipments "
                 + "from product p left join box_spec bs on bs.id = p.matched_box_spec_id "
                 + "left join category c on c.id = p.category_id "
@@ -61,7 +61,8 @@ public class AgentDataRepository {
                 + "where p.warehouse_id = :wh and coalesce(p.is_active, true) order by p.code";
         return jdbc.query(sql, params, (rs, i) -> new ProductShipment(rs.getObject("id", UUID.class), rs.getString("code"),
                 rs.getString("name"), rs.getString("category"), (Integer) rs.getObject("width_mm"),
-                (Integer) rs.getObject("depth_mm"), (Integer) rs.getObject("height_mm"), rs.getString("matched_box"),
+                (Integer) rs.getObject("depth_mm"), (Integer) rs.getObject("height_mm"), (Integer) rs.getObject("weight_g"),
+                rs.getString("matched_box"),
                 rs.getBigDecimal("fill_rate_pct") == null ? null : rs.getBigDecimal("fill_rate_pct").doubleValue(),
                 rs.getLong("shipments")));
     }
