@@ -20,7 +20,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class InventoryPackingServiceTest {
-    @Test void manuallyFixedBoxStillRequiresReviewWhenOnlyTiltedFitRemains() {
+    @Test void manuallyFixedBoxIsPackedEvenWhenOnlyATiltedFitRemains() {
         var warehouse = Warehouse.builder().id(UUID.randomUUID()).build();
         var box = BoxSpec.builder().id(UUID.randomUUID()).warehouse(warehouse).code("M-9")
                 .innerWidthMm(450).innerDepthMm(450).innerHeightMm(100)
@@ -43,10 +43,11 @@ class InventoryPackingServiceTest {
         var result = new InventoryPackingService(matching, boxes, movements, notices, properties)
                 .pack(product, UUID.randomUUID().toString());
 
-        assertThat(result.waitingReason()).isEqualTo(InventoryPackingService.WaitingReason.REVIEW_REQUIRED);
-        assertThat(result.packed()).isFalse();
-        assertThat(box.getOnHandQty()).isEqualTo(2);
+        assertThat(result.packed()).isTrue();
+        assertThat(result.box()).isSameAs(box);
+        assertThat(box.getOnHandQty()).isEqualTo(1);
         assertThat(product.getMatchSource()).isEqualTo("MANUAL");
-        verifyNoInteractions(movements, notices);
+        assertThat(product.getMatchedBoxSpec()).isSameAs(box);
+        verify(movements).saveAndFlush(any());
     }
 }

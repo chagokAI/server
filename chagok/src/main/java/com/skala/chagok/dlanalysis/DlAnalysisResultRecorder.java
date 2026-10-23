@@ -56,10 +56,9 @@ public class DlAnalysisResultRecorder {
         Product product = found.getFirst();
         var allocation = packing.pack(product, eventId);
         if (!allocation.packed()) {
-            var reason = DlAnalysisFailureReason.valueOf(allocation.waitingReason().name());
-            itemEvents.waitForPacking(eventId, product, reason.name(),
-                    reason == DlAnalysisFailureReason.NO_AVAILABLE_BOX ? "재고가 있고 규격에 맞는 사용 가능한 박스가 없습니다." : "박스 매칭에 담당자 검토가 필요합니다.");
-            return DlAnalysisOutcome.waiting(reason);
+            itemEvents.waitForPacking(eventId, product, DlAnalysisFailureReason.NO_AVAILABLE_BOX.name(),
+                    "재고가 있고 규격에 맞는 사용 가능한 박스가 없습니다.");
+            return DlAnalysisOutcome.waiting(DlAnalysisFailureReason.NO_AVAILABLE_BOX);
         }
         if (itemEvents.markSucceeded(eventId, product, allocation.box(), allocation.fillRatePct()) != 1)
             throw new IllegalStateException("포장한 이벤트의 성공 상태를 확정하지 못했습니다.");
