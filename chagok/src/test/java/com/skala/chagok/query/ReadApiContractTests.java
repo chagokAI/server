@@ -85,17 +85,41 @@ class ReadApiContractTests {
     }
 
     @Test void sceneInRangeReturnsMeasuredDimensionsInTimeOrder() throws Exception {
-        var measured = new SceneResponse.Measurement("known", "measured", 287, 220, 112, 425, null);
+        var measured = new SceneResponse.Measurement("known", "measured", 287, 220, 112, 425L, null, null, "IMPORTED_SAMPLE");
         var observation = new SceneResponse.Observation("evt-2", "evt-2", Instant.parse("2026-09-01T00:10:00Z"),
                 "SUCCEEDED", null, null, null, null, false, "CATALOG", measured);
         var from = Instant.parse("2026-08-31T23:00:00Z");
         var to = Instant.parse("2026-09-01T11:00:00Z");
-        when(observations.scene(warehouseId, 300, from, to)).thenReturn(new SceneResponse(List.of(observation), 300, observation.observedAt(), 0));
+        when(observations.scene(warehouseId, 300, from, to, null, null, false))
+                .thenReturn(new SceneResponse(List.of(observation), 300, observation.observedAt(), 0));
         mvc.perform(get(path("/simulation-state")).param("limit", "300")
                         .param("from", "2026-09-01T08:00:00+09:00").param("to", "2026-09-01T20:00:00+09:00"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.items[0].measurement.widthMm").value(287))
                 .andExpect(jsonPath("$.data.items[0].measurement.sizeType").value("measured"));
         verify(observations, never()).scene(warehouseId, 300);
+    }
+
+    @Test void sceneCursorRequestReturnsNextIdentityAndAvailableRange() throws Exception {
+        var from = Instant.parse("2026-10-23T00:00:00Z");
+        var to = Instant.parse("2026-10-24T00:00:00Z");
+        var after = Instant.parse("2026-10-23T01:00:00Z");
+        var observation = new SceneResponse.Observation("evt-2", "evt-2", after,
+                "PENDING", null, null, null, null, false, "CATALOG", null);
+        when(observations.scene(warehouseId, 1, from, to, after, "evt-1", true))
+                .thenReturn(new SceneResponse(List.of(observation), 1, after, 2,
+                        new SceneResponse.Cursor(after, "evt-2"), true,
+                        new SceneResponse.AvailableRange(from, to, null, null, 3, 0)));
+
+        mvc.perform(get(path("/simulation-state")).param("limit", "1")
+                        .param("from", from.toString()).param("to", to.toString())
+                        .param("afterObservedAt", after.toString()).param("afterEventId", "evt-1")
+                        .param("includeRange", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].eventId").value("evt-2"))
+                .andExpect(jsonPath("$.data.nextCursor.eventId").value("evt-2"))
+                .andExpect(jsonPath("$.data.hasMore").value(true))
+                .andExpect(jsonPath("$.data.availableRange.eventCount").value(3))
+                .andExpect(jsonPath("$.meta.pendingEventCount").value(2));
     }
 
     @Test void rejectsOutOfRangeLimitBeforeCallingService() throws Exception {

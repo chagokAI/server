@@ -23,7 +23,8 @@ public class MeasurementQueryRepository {
                 + "from dl_measurement_sample where event_id in (:ids)", Map.of("ids", eventIds), rs -> {
             out.put(rs.getString("event_id"), new Measurement(rs.getString("dl_status"), rs.getString("size_type"),
                     mm(rs.getBigDecimal("width_cm")), mm(rs.getBigDecimal("depth_cm")), mm(rs.getBigDecimal("height_cm")),
-                    (Integer) rs.getObject("latency_ms"), rs.getString("failure_reason")));
+                    rs.getObject("latency_ms") == null ? null : rs.getLong("latency_ms"),
+                    null, rs.getString("failure_reason"), "IMPORTED_SAMPLE"));
         });
         return out;
     }

@@ -25,7 +25,6 @@ public class ObservationQueryService {
     private final WarehouseQueryGuard warehouses;
     private final ChagokProperties properties;
     private final com.skala.chagok.domain.dashboard.repository.SimulationMeasurementRepository measurements;
-    private final com.skala.chagok.domain.dashboard.repository.MeasurementQueryRepository measurements;
 
     public SceneResponse scene(UUID warehouseId, int limit) {
         return scene(warehouseId, limit, null, null, null, null, false);
@@ -47,29 +46,12 @@ public class ObservationQueryService {
         var legacy = measurements.findAll(selected.stream().map(event -> event.getId().getEventId()).toList());
         var items = selected.stream().map(event -> {
             var observation = SceneResponse.Observation.from(event);
+            // 새 촬영의 Worker 결과를 우선하고, 없는 이력에만 과거 표본을 붙인다.
             return observation.measurement() == null ? observation.withMeasurement(legacy.get(observation.eventId())) : observation;
         }).toList();
         var next = more ? new SceneResponse.Cursor(items.getLast().observedAt(), items.getLast().eventId()) : null;
         return new SceneResponse(items, limit, items.stream().map(SceneResponse.Observation::observedAt).max(Comparator.naturalOrder()).orElse(null),
                 events.countByWarehouseIdAndStatus(warehouseId, "PENDING"), next, more, includeRange ? measurements.range(warehouseId) : null);
-        return response(warehouseId, limit, events.findRecent(warehouseId, PageRequest.of(0, limit)), true);
-    }
-
-    /** 기간 [from, to) 의 이벤트를 시간순으로(디지털트윈 재생용). 최신 시각은 마지막 항목 */
-    public SceneResponse scene(UUID warehouseId, int limit, Instant from, Instant to) {
-        warehouses.require(warehouseId);
-        if (limit < 1 || limit > 500) throw BusinessException.invalidField("limit", "1~500 범위여야 합니다.");
-        if (from == null || to == null || !from.isBefore(to))
-            throw BusinessException.invalidField("from", "from 과 to 를 함께, from 이 to 보다 앞서게 지정하세요.");
-        return response(warehouseId, limit, events.findInRange(warehouseId, from, to, PageRequest.of(0, limit)), false);
-    }
-
-    private SceneResponse response(UUID warehouseId, int limit, List<com.skala.chagok.domain.event.entity.ItemEvent> rows,
-                                   boolean newestFirst) {
-        var dl = measurements.byEventIds(rows.stream().map(e -> e.getId().getEventId()).toList());
-        var items = rows.stream().map(e -> SceneResponse.Observation.from(e, dl.get(e.getId().getEventId()))).toList();
-        Instant latest = items.isEmpty() ? null : (newestFirst ? items.getFirst() : items.getLast()).observedAt();
-        return new SceneResponse(items, limit, latest, events.countByWarehouseIdAndStatus(warehouseId, "PENDING"));
     }
 
     public MetricSeries metrics(UUID warehouseId, MetricSeries.Metric metric, LocalDate from, LocalDate to,
