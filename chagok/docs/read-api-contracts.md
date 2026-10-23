@@ -247,11 +247,11 @@ CurrentUserProvider는 세션 사용자 ID로 본인을 조회한다. 명시적�
 - code는 SKU다. DL 상품 조회는 barcode를 사용하며, barcode 없는 기존 행만 code와 비교한다.
 - 상품 치수 또는 박스 치수·활성 여부가 바뀌면 연결된 활성 상품의 적합 여부와 비율을 재검증한다.
 - 기존 박스가 부적합·비활성이면 박스·비율·수동 사유를 비우고 UNMATCHED로 바꾼다.
-- 적합하면 비율을 다시 계산한다. MANUAL은 MATCHED를 유지하고 그 외는 85% 이상 MATCHED, 미만 REVIEW다.
+- 적합하면 비율을 다시 계산한다. MANUAL은 MATCHED를 유지하고 그 외는 45% 이상 MATCHED, 미만 REVIEW다. 실제 포장 판정도 같은 기준을 쓴다.
 - 상세의 matchCandidates 및 GET products/{id}/box-candidates는 적합한 활성 박스를 충전율 내림차순으로 반환한다.
 - 후보: boxSpec, fillRatePct, recommended(첫 후보), selected, source=DIMENSIONS. 회전을 허용한 치수 비교이며 AI 결과가 아니다.
 - 이름만 수정하면 매칭 결과를 바꾸지 않는다. 변경된 버전은 다음 요청의 expectedVersion으로 사용한다.
-- 상품 치수를 PATCH하면 MANUAL이 아닌 상품은 후보 1순위를 자동 저장한다(match_source=DIMENSIONS, 상태는 85% 기준).
+- 상품 치수를 PATCH하면 MANUAL이 아닌 상품은 후보 1순위를 자동 저장한다(match_source=DIMENSIONS, 상태는 45% 기준).
   들어가는 박스가 없으면 UNMATCHED. MANUAL은 박스를 바꾸지 않고 현재 박스만 재검증한다.
 - 자동 저장 박스는 같은 시점의 box-candidates 1순위(recommended)와 항상 같다.
 - 비스듬한 배치 정책 `chagok.matching.tilted`(기본 enabled=false, clearance-mm=0, 값은 팀 결정 전):
@@ -260,6 +260,10 @@ CurrentUserProvider는 세션 사용자 ID로 본인을 조회한다. 명시적�
   시안 박스 9종·상품 7종 기준으로는 기울여야만 들어가는 조합이 없어 결과가 바뀌지 않았다.
 - POST product-matches/recalculate: 매칭 박스가 없는 활성 상품에 1순위를 일괄 적용한다. DB에 직접 들어온 상품 채우기용.
   응답 `{targetCount, matchedCount, reviewCount, unmatchedCount}`. 이미 매칭된 상품은 건드리지 않아 반복 호출해도 같다.
+- 기준 변경 후 기존 상태 재판정: 상태는 다시 매칭할 때만 계산되므로 기준만 바꾸면 옛 상태가 남는다.
+  `chagok.matching.resync-statuses-on-startup=true`(환경변수 `MATCH_STATUS_RESYNC_ON_STARTUP`, 기본 false)로 기동하면
+  모든 센터에서 매칭 박스가 있는 활성 상품의 상태를 저장된 충전율·출처로 한 번 다시 판정한다. 박스·충전율은 바꾸지 않고,
+  상태가 바뀐 상품만 version이 오른다. 반복 실행해도 결과가 같다. 상품 행을 바꾸므로 공유 DB에서는 승인 후 한 번만 켠다.
 
 ## 신규 규격·안전 재고 정책
 
