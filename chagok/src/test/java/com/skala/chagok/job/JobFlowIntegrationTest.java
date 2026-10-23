@@ -2,6 +2,7 @@ package com.skala.chagok.job;
 
 import com.skala.chagok.domain.job.entity.AnalysisJob;
 import com.skala.chagok.domain.job.repository.AnalysisJobRepository;
+import com.skala.chagok.domain.job.repository.ObservationBaselineRepository;
 import com.skala.chagok.domain.job.service.*;
 import com.skala.chagok.domain.procurement.service.ProcurementQueryService;
 import java.sql.Timestamp;
@@ -29,7 +30,8 @@ class JobFlowIntegrationTest {
     @Autowired JobGenerationService generator;
     @Autowired AnalysisJobRepository jobs;
     @Autowired ProcurementQueryService queries;
-    private final UUID warehouseId = UUID.randomUUID();
+    @Autowired ObservationBaselineRepository demand;
+    private final UUID warehouseId = UUID.randomUUID(), otherWarehouseId = UUID.randomUUID();
     private final UUID boxId = UUID.randomUUID();
     private final String month = YearMonth.now(ZoneId.of("Asia/Seoul")).plusMonths(1).toString();
 
@@ -42,13 +44,16 @@ class JobFlowIntegrationTest {
     }
 
     @AfterEach void removeFixtures() {
-        jdbc.update("delete from procurement_proposal_item where proposal_id in (select id from procurement_proposal where warehouse_id = ?)", warehouseId);
-        jdbc.update("delete from procurement_proposal where warehouse_id = ?", warehouseId);
-        jdbc.update("delete from cost_forecast where warehouse_id = ?", warehouseId);
-        jdbc.update("delete from analysis_job where warehouse_id = ?", warehouseId);
-        jdbc.update("delete from item_event where warehouse_id = ?", warehouseId);
-        jdbc.update("delete from box_spec where warehouse_id = ?", warehouseId);
-        jdbc.update("delete from warehouse where id = ?", warehouseId);
+        for (UUID id : List.of(warehouseId, otherWarehouseId)) {
+            jdbc.update("delete from procurement_proposal_item where proposal_id in (select id from procurement_proposal where warehouse_id = ?)", id);
+            jdbc.update("delete from procurement_proposal where warehouse_id = ?", id);
+            jdbc.update("delete from cost_forecast where warehouse_id = ?", id);
+            jdbc.update("delete from analysis_job where warehouse_id = ?", id);
+            jdbc.update("delete from item_event where warehouse_id = ?", id);
+            jdbc.update("delete from product where warehouse_id = ?", id);
+            jdbc.update("delete from box_spec where warehouse_id = ?", id);
+            jdbc.update("delete from warehouse where id = ?", id);
+        }
     }
 
     private String base() { return "/api/v1/warehouses/" + warehouseId; }
@@ -147,6 +152,71 @@ class JobFlowIntegrationTest {
             assertThat(first.get(10, java.util.concurrent.TimeUnit.SECONDS).id())
                     .isNotEqualTo(second.get(10, java.util.concurrent.TimeUnit.SECONDS).id());
         }
+    }
+
+    private UUID box(UUID warehouse, String code, boolean active) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("insert into box_spec (id, warehouse_id, code, name, size_class, is_active, on_hand_qty, version) values (?, ?, ?, ?, 'S', ?, 0, 0)",
+                id, warehouse, code, code, active);
+        return id;
+    }
+    private UUID product(UUID warehouse, String code, UUID matchedBox, boolean active) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+                insert into product (id, warehouse_id, code, name, matched_box_spec_id, is_active, version, width_mm, depth_mm, height_mm)
+                values (?, ?, ?, ?, ?, ?, 0, 100, 100, 100)
+                """, id, warehouse, code, code, matchedBox, active);
+        return id;
+    }
+    private void event(UUID warehouse, UUID product, UUID box, String status, Instant at, String dlStatus) {
+        jdbc.update("""
+                insert into item_event (event_id, occurred_at, warehouse_id, product_id, box_spec_id, status, measurement)
+                values (?, ?, ?, ?, ?, ?, cast(? as jsonb))
+                """, UUID.randomUUID().toString(), Timestamp.from(at), warehouse, product, box, status,
+                dlStatus == null ? null : "{\"dlStatus\":\"" + dlStatus + "\"}");
+    }
+
+    @Test void demandPrefersCatalogBoxAndCountsKnownWaitingWithoutRewritingEvents() {
+        Instant from = Instant.now().minusSeconds(3600), until = Instant.now();
+        UUID alternative = box(warehouseId, "S-2", true);
+        UUID item = product(warehouseId, "P-1", boxId, true);
+        event(warehouseId, item, alternative, "SUCCEEDED", from, "known");
+        event(warehouseId, null, alternative, "SUCCEEDED", from.plusSeconds(1), "known");
+        event(warehouseId, item, null, "WAITING", from.plusSeconds(2), "known");
+        event(warehouseId, item, null, "WAITING", from.plusSeconds(3), null);
+
+        var result = demand.demand(warehouseId, from, until);
+
+        assertThat(result.counts()).containsOnly(Map.entry(boxId, 2L), Map.entry(alternative, 1L));
+        assertThat(result.observedBoxCount()).isEqualTo(1);
+        assertThat(result.estimatedBoxCount()).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select count(*) from item_event where warehouse_id = ? and box_spec_id = ?",
+                Long.class, warehouseId, alternative)).isEqualTo(2);
+    }
+
+    @Test void demandExcludesFailedOutOfPeriodInactiveAndCrossWarehouseEvents() {
+        Instant from = Instant.now().minusSeconds(3600), until = Instant.now();
+        UUID inactive = box(warehouseId, "S-OFF", false);
+        UUID item = product(warehouseId, "P-1", boxId, true);
+        event(warehouseId, item, null, "FAILED", from, "known");
+        event(warehouseId, item, null, "SUCCEEDED", from.minusSeconds(1), "known");
+        event(warehouseId, item, null, "SUCCEEDED", until, "known");
+        event(warehouseId, null, inactive, "SUCCEEDED", from, "known");
+        event(warehouseId, product(warehouseId, "P-OFF-BOX", inactive, true), null, "SUCCEEDED", from, "known");
+        event(warehouseId, product(warehouseId, "P-OFF", boxId, false), null, "SUCCEEDED", from, "known");
+        event(warehouseId, null, null, "SUCCEEDED", from, "known");
+        jdbc.update("insert into warehouse (id, name) values (?, '다른 센터')", otherWarehouseId);
+        UUID foreignBox = box(otherWarehouseId, "S-1", true);
+        UUID foreign = product(otherWarehouseId, "P-1", foreignBox, true);
+        event(otherWarehouseId, foreign, foreignBox, "SUCCEEDED", from, "known");
+        event(warehouseId, foreign, null, "SUCCEEDED", from, "known");
+        event(warehouseId, null, foreignBox, "SUCCEEDED", from, "known");
+
+        var result = demand.demand(warehouseId, from, until);
+
+        assertThat(result.counts()).isEmpty();
+        assertThat(result.observedBoxCount()).isZero();
+        assertThat(result.estimatedBoxCount()).isZero();
     }
 
     @Test void validatesRequestsAndProtectsScopedResources() throws Exception {
