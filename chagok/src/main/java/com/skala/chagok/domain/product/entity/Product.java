@@ -158,7 +158,10 @@ public class Product {
      */
     public static final BigDecimal MATCHED_MIN_FILL_PCT = BigDecimal.valueOf(45);
 
-    /** 기본 추천과 실제 포장에 동일한 검토 기준을 적용한다. */
+    /**
+     * 상품 마스터의 매칭 상태 라벨을 정한다. REVIEW는 사람과 에이전트가 나중에 박스 구성을 개선하려고 보는 표시이며,
+     * 실제 포장 여부는 이 라벨로 정하지 않는다.
+     */
     public static MatchStatus matchStatusFor(String source, BigDecimal rate) {
         // 직접 지정은 항상 MATCHED, 비스듬히 넣어야 하는 자동 매칭(TILTED)은 항상 REVIEW, 그 외는 최소 충전율 기준.
         if ("MANUAL".equals(source)) return MatchStatus.MATCHED;

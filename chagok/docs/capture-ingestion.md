@@ -42,7 +42,7 @@ Kafka 요청/결과 형식과 토픽 이름은 [기존 계약](dl-kafka-contract
 `GET /api/v1/warehouses/{warehouseId}/captures/{eventId}`
 
 `PENDING`(분석 중), `SUCCEEDED`(신규 포장·재고 반영 완료), `WAITING`(미포장 대기), `FAILED`(분석 실패)를 조회한다.
-재고가 있는 적합 후보가 없으면 WAITING/NO_AVAILABLE_BOX, 담당자 검토 대상이면 WAITING/REVIEW_REQUIRED이며 차감하지 않는다.
+재고가 있는 적합 후보가 없으면 WAITING/NO_AVAILABLE_BOX이며 차감하지 않는다. 충전율이 낮아 상품이 검토 필요 라벨이어도 포장과 차감은 진행한다.
 촬영 시각, 이미지 수, 식별 상품·실제 배정 박스·충전율·사유와 저장된 측정값을 함께 조회한다.
 WAITING은 물품 삭제가 아니다. 재고 보충·담당자 수정 뒤 같은 known 결과를 재전달하면 배정만 재시도할 수 있다.
 별도 사용자 재시도 버튼/API와 입고 시 자동 재처리는 후속 범위다. 센터가 다르면 작업을 조회할 수 없다.

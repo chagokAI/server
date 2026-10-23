@@ -5,7 +5,6 @@ import com.skala.chagok.domain.box.repository.BoxSpecRepository;
 import com.skala.chagok.domain.inventory.entity.InventoryMovement;
 import com.skala.chagok.domain.inventory.repository.InventoryMovementRepository;
 import com.skala.chagok.domain.notification.service.DomainNotificationService;
-import com.skala.chagok.domain.product.entity.MatchStatus;
 import com.skala.chagok.domain.product.entity.Product;
 import com.skala.chagok.domain.product.service.ProductMatchingService;
 import com.skala.chagok.global.config.ChagokProperties;
@@ -18,7 +17,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 센터·이벤트를 잠근 결과 반영 트랜잭션 안에서 실제 재고의 박스 1개를 사용한다. */
+/**
+ * 센터·이벤트를 잠근 결과 반영 트랜잭션 안에서 실제 재고의 박스 1개를 사용한다.
+ *
+ * <p>매칭 상태(검토 필요 등)는 사람과 에이전트가 나중에 박스 구성을 개선하려고 보는 라벨이라 포장 여부를 정하지 않는다.
+ * 처음에는 검토 대상 후보를 대기로 돌렸으나, 충전율이 낮아도 실제 포장은 진행한다는 업무 규칙에 맞춰 그 분기를 없앴다.
+ * 포장하지 못하는 경우는 재고가 있고 규격에 맞는 박스가 없을 때뿐이다.
+ */
 @Service @RequiredArgsConstructor
 @Transactional(propagation = Propagation.MANDATORY)
 public class InventoryPackingService {
@@ -28,21 +33,17 @@ public class InventoryPackingService {
     private final DomainNotificationService notices;
     private final ChagokProperties properties;
 
-    public enum WaitingReason { NO_AVAILABLE_BOX, REVIEW_REQUIRED }
-    public record Result(BoxSpec box, BigDecimal fillRatePct, WaitingReason waitingReason) {
+    /** box가 null이면 쓸 수 있는 박스가 없어 포장하지 못한 것이다. */
+    public record Result(BoxSpec box, BigDecimal fillRatePct) {
         public boolean packed() { return box != null; }
-        static Result waiting(WaitingReason reason) { return new Result(null, null, reason); }
+        static Result unavailable() { return new Result(null, null); }
     }
 
     /** 호출자가 센터와 미완료 이벤트를 잠그고 결과 확정까지 같은 트랜잭션을 유지한다. */
     public Result pack(Product product, String eventId) {
         var candidates = matching.packingCandidates(product);
-        if (candidates.isEmpty()) return Result.waiting(WaitingReason.NO_AVAILABLE_BOX);
+        if (candidates.isEmpty()) return Result.unavailable();
         var best = candidates.getFirst();
-        String source = ProductMatchingService.SOURCE_TILTED.equals(best.source()) ? best.source()
-                : "MANUAL".equals(product.getMatchSource()) ? "MANUAL" : best.source();
-        if (Product.matchStatusFor(source, best.fillRatePct()) != MatchStatus.MATCHED)
-            return Result.waiting(WaitingReason.REVIEW_REQUIRED);
 
         UUID warehouseId = product.getWarehouse().getId();
         var box = boxes.findByIdAndWarehouseId(best.boxSpec().id(), warehouseId).orElseThrow();
@@ -56,6 +57,6 @@ public class InventoryPackingService {
                 .occurredOn(now.atZone(properties.timezone()).toLocalDate()).createdAt(now)
                 .memo("DL packing event=" + eventId).build());
         notices.inventory(box, wasShort, !Boolean.FALSE.equals(box.getAlertEnabled()));
-        return new Result(box, best.fillRatePct(), null);
+        return new Result(box, best.fillRatePct());
     }
 }

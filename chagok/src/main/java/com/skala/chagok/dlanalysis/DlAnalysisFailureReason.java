@@ -18,8 +18,6 @@ public enum DlAnalysisFailureReason {
     PRODUCT_AMBIGUOUS,
     /** 같은 센터에 재고가 있고 규격에 맞는 포장 후보가 없어 대기한다 */
     NO_AVAILABLE_BOX,
-    /** 기존 매칭 정책상 담당자 검토가 필요한 후보라 포장을 확정하지 않는다 */
-    REVIEW_REQUIRED,
     /** Worker가 요청 메시지를 계약과 다르다고 판단했다(필드 누락·이미지 수·schemaVersion) */
     INVALID_REQUEST,
     /** 모델이 입력을 거부했다(해상도·물체 미검출). 다시 보내도 결과가 같으므로 재시도하지 않는다 */

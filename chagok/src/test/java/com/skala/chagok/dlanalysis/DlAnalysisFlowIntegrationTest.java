@@ -409,27 +409,20 @@ class DlAnalysisFlowIntegrationTest {
     }
 
     @Test
-    void candidateAtHalfFillRateIsPackedUnderTheCurrentThreshold() throws Exception {
-        // 상품 239×80×34mm, 박스 239×80×68mm → 충전율 50%. 85% 기준에서는 검토 대기였고 45% 기준에서는 포장한다.
-        jdbc.update("update box_spec set inner_height_mm=68 where id=?", boxSpecId);
+    void lowFillRateCandidateIsPackedWhileTheReviewLabelStaysOnTheProduct() throws Exception {
+        // 박스 1000mm³ 대비 충전율이 1% 미만이라 검토 라벨 대상이지만, 라벨은 포장 여부를 정하지 않는다.
+        jdbc.update("update box_spec set inner_width_mm=1000, inner_depth_mm=1000, inner_height_mm=1000 where id=?", boxSpecId);
+        jdbc.update("update product set match_status='REVIEW', match_source='DIMENSIONS' where id=?", productId);
         String id = accept();
         resultListener.onResult(knownResult(id));
         assertThat(awaitFinished(id)).containsEntry("box_spec_id", boxSpecId);
+        assertThat(statusOf(id)).isEqualTo("SUCCEEDED");
+        assertThat(jdbc.queryForObject("select failure_reason from item_event where event_id=?", String.class, id)).isNull();
         assertThat(jdbc.queryForObject("select fill_rate_pct from item_event where event_id=?", java.math.BigDecimal.class, id))
-                .isEqualByComparingTo("50.00");
+                .isLessThan(java.math.BigDecimal.valueOf(45));
         assertThat(stock(boxSpecId)).isEqualTo(99);
         assertThat(movementCount()).isEqualTo(1);
-    }
-
-    @Test
-    void lowFillRateCandidateWaitsForReviewWithoutConsumption() throws Exception {
-        jdbc.update("update box_spec set inner_width_mm=1000, inner_depth_mm=1000, inner_height_mm=1000 where id=?", boxSpecId);
-        String id = accept();
-        resultListener.onResult(knownResult(id));
-        assertThat(statusOf(id)).isEqualTo("WAITING");
-        assertThat(jdbc.queryForObject("select failure_reason from item_event where event_id=?", String.class, id)).isEqualTo("REVIEW_REQUIRED");
-        assertThat(stock(boxSpecId)).isEqualTo(100);
-        assertThat(movementCount()).isZero();
+        assertThat(jdbc.queryForObject("select match_status from product where id=?", String.class, productId)).isEqualTo("REVIEW");
     }
 
     @Test
