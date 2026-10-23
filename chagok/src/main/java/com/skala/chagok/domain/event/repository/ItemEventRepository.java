@@ -37,7 +37,4 @@ public interface ItemEventRepository extends JpaRepository<ItemEvent, ItemEventI
             + "and (e.id.occurredAt > :afterAt or (e.id.occurredAt = :afterAt and e.id.eventId > :afterId)) "
             + "order by e.id.occurredAt asc, e.id.eventId asc")
     List<ItemEvent> findRangeAfter(UUID warehouseId, Instant from, Instant to, Instant afterAt, String afterId, Pageable pageable);
-    @Query("select e from ItemEvent e where e.warehouse.id = :warehouseId and e.id.occurredAt >= :from "
-            + "and e.id.occurredAt < :to order by e.id.occurredAt asc, e.id.eventId asc")
-    List<ItemEvent> findInRange(UUID warehouseId, java.time.Instant from, java.time.Instant to, Pageable pageable);
 }

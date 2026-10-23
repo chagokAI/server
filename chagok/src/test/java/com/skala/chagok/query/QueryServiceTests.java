@@ -106,7 +106,6 @@ class QueryServiceTests {
                 .thenReturn(List.of(new MetricQueryRepository.Aggregate(firstBucket, new BigDecimal("81.25"), 4)));
         var service = new ObservationQueryService(mock(ItemEventRepository.class), repository, mock(BoxSpecRepository.class), guard, properties,
                 mock(com.skala.chagok.domain.dashboard.repository.SimulationMeasurementRepository.class));
-                mock(com.skala.chagok.domain.dashboard.repository.MeasurementQueryRepository.class));
         var result = service.metrics(warehouseId, MetricSeries.Metric.AVG_FILL_RATE_PCT,
                 LocalDate.of(2026, 10, 19), LocalDate.of(2026, 10, 20), MetricSeries.Bucket.day, null);
         assertThat(result.points()).hasSize(2);
@@ -119,7 +118,6 @@ class QueryServiceTests {
         var repository = mock(MetricQueryRepository.class);
         var service = new ObservationQueryService(mock(ItemEventRepository.class), repository, mock(BoxSpecRepository.class), guard, properties,
                 mock(com.skala.chagok.domain.dashboard.repository.SimulationMeasurementRepository.class));
-                mock(com.skala.chagok.domain.dashboard.repository.MeasurementQueryRepository.class));
         assertThatThrownBy(() -> service.metrics(warehouseId, MetricSeries.Metric.OBSERVATION_COUNT,
                 LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31), MetricSeries.Bucket.hour, null))
                 .isInstanceOf(BusinessException.class);
