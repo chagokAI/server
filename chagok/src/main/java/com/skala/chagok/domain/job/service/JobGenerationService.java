@@ -36,17 +36,17 @@ public class JobGenerationService {
         if (specs.isEmpty()) throw new JobCalculationException("NO_ACTIVE_BOX_SPECS", "활성 박스 규격이 없습니다.");
         var until = job.getCreatedAt();
         var from = until.minus(properties.lookbackDays(), ChronoUnit.DAYS);
-        var baseline = observations.baseline(job.getWarehouse().getId(), from, until);
+        var baseline = observations.demand(job.getWarehouse().getId(), from, until);
         var counts = baseline.counts();
         long sampleCount = specs.stream().mapToLong(spec -> counts.getOrDefault(spec.getId(), 0L)).sum();
-        if (sampleCount == 0) throw new JobCalculationException("INSUFFICIENT_OBSERVATIONS", "계산 기간에 활성 규격의 성공 관측이 없습니다.");
+        if (sampleCount == 0) throw new JobCalculationException("INSUFFICIENT_OBSERVATIONS", "계산 기간에 활성 규격으로 연결할 수 있는 유입 관측이 없습니다.");
         YearMonth month = YearMonth.parse(job.getTargetMonth());
         var lines = specs.stream().map(spec -> calculator.calculate(spec, counts.getOrDefault(spec.getId(), 0L), month)).toList();
         var insights = new ArrayList<>(baseline.estimatedBoxCount() > 0
-                ? List.of("성공 관측의 일평균을 대상 월 일수로 환산한 참고값입니다. 실제 박스 소모량 예측이 아닙니다.",
-                          "박스 정보가 없는 관측 " + baseline.estimatedBoxCount()
-                                  + "건은 현재 상품 매칭으로 규격을 추정했습니다. 과거에 사용한 박스의 실측값이 아닙니다.")
-                : List.of("성공 관측의 일평균을 대상 월 일수로 환산한 참고값입니다. 실제 박스 소모량 예측이 아닙니다."));
+                ? List.of("포장 완료·대기 유입의 일평균을 대상 월 일수로 환산한 참고 수요입니다. 실제 박스 사용 원장이 아닙니다.",
+                          "관측 " + baseline.estimatedBoxCount()
+                                  + "건은 현재 상품의 기본 매칭으로 필요 규격을 추정했습니다. 일시 품절에 따른 대체 사용과 구분합니다.")
+                : List.of("기본 매칭이 없는 완료 이력은 관측 박스로 분류한 참고 수요입니다. 실제 박스 소모량 예측이 아닙니다."));
         if (lines.stream().anyMatch(line -> "DAYS".equals(line.safetySource())))
             insights.add("안전재고 수량이 없는 규격은 등록된 안전재고 일수 × 관측 일평균을 올림해 계산했습니다.");
         Map<String, Object> summary = Map.of("method", "OBSERVATION_BASELINE", "sourceStart", from.toString(),

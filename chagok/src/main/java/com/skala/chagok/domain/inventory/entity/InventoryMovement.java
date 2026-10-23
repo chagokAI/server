@@ -5,7 +5,7 @@ import java.time.*;
 import java.util.UUID;
 import lombok.*;
 
-/** 입고·실사 조정 이력. 촬영·매칭 관측과 별도로 보관한다. */
+/** 입고·실사 조정·포장 사용의 수량 변경 이력. 관측 이벤트와 연결해 중복 사용을 막는다. */
 @Entity @Table(name = "inventory_movement", uniqueConstraints = @UniqueConstraint(
         name = "uq_inventory_request", columnNames = {"warehouse_id", "request_id"}))
 @Getter @Builder @NoArgsConstructor(access = AccessLevel.PROTECTED) @AllArgsConstructor

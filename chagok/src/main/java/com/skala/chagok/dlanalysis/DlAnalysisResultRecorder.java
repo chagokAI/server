@@ -7,17 +7,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.skala.chagok.domain.product.entity.Product;
+import com.skala.chagok.domain.inventory.service.InventoryPackingService;
+import com.skala.chagok.domain.warehouse.repository.WarehouseRepository;
 
 import lombok.extern.slf4j.Slf4j;
 
 /**
  * DL 분석 결과를 item_event에 반영한다.
  *
- * <p>1단계 규칙: DL이 식별한 바코드로 같은 센터의 활성 상품을 찾고, 그 상품에 이미 저장된 매칭 박스·충전율을
- * item_event에 옮겨 적는다. placement는 채우지 않는다 — 배치 좌표가 없을 때 치수로 임의 위치를 만들지 않는다는
- * 기능 명세(DASH-02) 때문이다. 상품과 박스 재고는 바꾸지 않는다. 분석만으로 재고를 차감하지 않는다는 명세를 따른다.
+ * <p>같은 센터의 활성 상품을 식별한 뒤 실제 재고에서 포장 박스를 선택한다. 성공·재고·원장은 함께 확정한다.
+ * 포장할 수 없으면 측정값과 상품을 WAITING에 보존한다. 상품 기본 매칭과 실측 좌표는 변경하지 않는다.
  *
- * <p>모든 갱신은 status가 PENDING일 때만 일어난다. 갱신 건수가 0이면 이미 처리된 작업의 재전달로 보고 넘어간다.
+ * <p>입고·실사와 같은 센터 잠금 뒤 이벤트를 잠근다. 미완료 이벤트만 포장하며 종료된 결과는 다시 차감하지 않는다.
  */
 @Slf4j
 @Service
@@ -25,14 +26,26 @@ public class DlAnalysisResultRecorder {
 
     private final DlAnalysisItemEventRepository itemEvents;
     private final DlAnalysisProductRepository products;
+    private final WarehouseRepository warehouses;
+    private final InventoryPackingService packing;
 
-    DlAnalysisResultRecorder(DlAnalysisItemEventRepository itemEvents, DlAnalysisProductRepository products) {
+    DlAnalysisResultRecorder(DlAnalysisItemEventRepository itemEvents, DlAnalysisProductRepository products,
+            WarehouseRepository warehouses, InventoryPackingService packing) {
         this.itemEvents = itemEvents;
         this.products = products;
+        this.warehouses = warehouses;
+        this.packing = packing;
     }
 
     @Transactional
     public DlAnalysisOutcome recordIdentified(String eventId, UUID warehouseId, String barcode) {
+        warehouses.lockById(warehouseId).orElseThrow(() ->
+                new DlAnalysisException(DlAnalysisFailureReason.INVALID_RESULT, "이벤트 센터가 없다"));
+        var event = itemEvents.findForUpdate(eventId).orElseThrow(() ->
+                new DlAnalysisException(DlAnalysisFailureReason.ORPHAN_MESSAGE, "item_event 행 없음"));
+        if (!warehouseId.equals(event.getWarehouse().getId())) throw new IllegalArgumentException("이벤트 센터 불일치");
+        if (!ItemEventStatus.PENDING.name().equals(event.getStatus()) && !ItemEventStatus.WAITING.name().equals(event.getStatus()))
+            return DlAnalysisOutcome.skipped();
         List<Product> found = products.findByWarehouse_IdAndCodeAndIsActiveTrue(warehouseId, barcode);
         if (found.isEmpty()) {
             return fail(eventId, DlAnalysisFailureReason.PRODUCT_NOT_FOUND, "barcode=" + barcode);
@@ -41,15 +54,15 @@ public class DlAnalysisResultRecorder {
             return fail(eventId, DlAnalysisFailureReason.PRODUCT_AMBIGUOUS, "barcode=" + barcode + ", count=" + found.size());
         }
         Product product = found.getFirst();
-        int updated = itemEvents.markSucceeded(eventId, product, product.getMatchedBoxSpec(), product.getFillRatePct());
-        if (updated == 0) {
-            log.info("DL 분석 결과 생략(이미 처리됨): eventId={}", eventId);
-            return DlAnalysisOutcome.skipped();
+        var allocation = packing.pack(product, eventId);
+        if (!allocation.packed()) {
+            var reason = DlAnalysisFailureReason.valueOf(allocation.waitingReason().name());
+            itemEvents.waitForPacking(eventId, product, reason.name(),
+                    reason == DlAnalysisFailureReason.NO_AVAILABLE_BOX ? "재고가 있고 규격에 맞는 사용 가능한 박스가 없습니다." : "박스 매칭에 담당자 검토가 필요합니다.");
+            return DlAnalysisOutcome.waiting(reason);
         }
-        if (product.getMatchedBoxSpec() == null) {
-            log.info("DL 분석 성공, 상품에 매칭 박스 없음: eventId={}, reason=NO_MATCHED_BOX, productId={}",
-                    eventId, product.getId());
-        }
+        if (itemEvents.markSucceeded(eventId, product, allocation.box(), allocation.fillRatePct()) != 1)
+            throw new IllegalStateException("포장한 이벤트의 성공 상태를 확정하지 못했습니다.");
         return DlAnalysisOutcome.succeeded();
     }
 
