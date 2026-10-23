@@ -1,0 +1,26 @@
+# Verified SSH target: choi -> apple@chagok.cloud (macOS ARM64).
+# Install at /Users/apple/deploy/chagok-migration-20261021/server-deploy.conf.
+COMPOSE_PROJECT_DIRECTORY=/Users/apple/deploy/chagok-migration-20261021/chagok
+COMPOSE_PROJECT_NAME=chagok-stack
+COMPOSE_FILES=(
+  "$COMPOSE_PROJECT_DIRECTORY/compose.yaml"
+  "$COMPOSE_PROJECT_DIRECTORY/compose.production.yaml"
+)
+# Preserve the version selected by the frontend deployment workflow.
+if [ -f "$COMPOSE_PROJECT_DIRECTORY/.client-deploy/frontend.image.yaml" ]; then
+  COMPOSE_FILES+=("$COMPOSE_PROJECT_DIRECTORY/.client-deploy/frontend.image.yaml")
+fi
+COMPOSE_ENV_FILE="$COMPOSE_PROJECT_DIRECTORY/.env"
+DEPLOY_STATE_DIR="$COMPOSE_PROJECT_DIRECTORY/.server-deploy"
+# Serialize against client deployments, including those from another repository.
+DEPLOY_LOCK_FILE="$COMPOSE_PROJECT_DIRECTORY/.client-deploy/deploy.lock"
+DB_BACKUP_DIR=/Users/apple/deploy/chagok-migration-20261021/backups/backend-deploy
+IMAGE_REPOSITORY=ghcr.io/chagokai/server
+SMOKE_BASE_URL=http://127.0.0.1:18081
+PUBLIC_BASE_URL=https://chagok.cloud
+HEALTH_TIMEOUT=180
+HTTP_ATTEMPTS=8
+HTTP_RETRY_DELAY=3
+export DOCKER_CONFIG=/Users/apple/.docker-chagok
+export DOCKER_HOST=unix:///Users/apple/.docker/run/docker.sock
+unset DOCKER_CONTEXT

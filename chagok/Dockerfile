@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM eclipse-temurin:25-jdk-noble AS build
+FROM --platform=$BUILDPLATFORM eclipse-temurin:25-jdk-noble AS build
 WORKDIR /workspace
 COPY gradlew build.gradle settings.gradle ./
 COPY gradle ./gradle
@@ -15,4 +15,5 @@ COPY --from=build --chown=app:app /workspace/build/libs/chagok-0.0.1-SNAPSHOT.ja
 RUN mkdir -p /images && chown app:app /images
 USER app
 EXPOSE 8080
+HEALTHCHECK --start-period=60s --interval=10s --timeout=5s --retries=12 CMD curl --fail --silent http://127.0.0.1:8080/actuator/health || exit 1
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]
