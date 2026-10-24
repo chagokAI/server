@@ -26,8 +26,7 @@ class DlAnalysisReplayFeederTest {
         when(kafka.send(eq("results"), anyString(), any(DlAnalysisResult.class))).thenAnswer(call ->
                 java.util.concurrent.CompletableFuture.supplyAsync(() -> null,
                         java.util.concurrent.CompletableFuture.delayedExecutor(60, java.util.concurrent.TimeUnit.MILLISECONDS)));
-        var producer = new DlAnalysisResultProducer(kafka, new DlAnalysisResultTopicProperties("results",3,1),
-                new DlAnalysisRequestTopicProperties("requests",3,1,java.time.Duration.ofSeconds(1)));
+        var producer = new DlAnalysisResultProducer(kafka, new DlAnalysisResultTopicProperties("results",3,1,java.time.Duration.ofDays(7),java.time.Duration.ofSeconds(1)));
         var events = mock(DlAnalysisItemEventRepository.class);
         var times = new java.util.concurrent.CopyOnWriteArrayList<Long>();
         var accepted = new java.util.concurrent.CountDownLatch(12);
@@ -104,8 +103,7 @@ class DlAnalysisReplayFeederTest {
         org.springframework.kafka.core.KafkaTemplate<String, DlAnalysisResult> kafka = mock(org.springframework.kafka.core.KafkaTemplate.class);
         when(kafka.send(eq("results"), anyString(), any(DlAnalysisResult.class)))
                 .thenReturn(java.util.concurrent.CompletableFuture.failedFuture(new org.apache.kafka.common.KafkaException("broker offline")));
-        var producer = new DlAnalysisResultProducer(kafka, new DlAnalysisResultTopicProperties("results",3,1),
-                new DlAnalysisRequestTopicProperties("requests",3,1,java.time.Duration.ofMillis(50)));
+        var producer = new DlAnalysisResultProducer(kafka, new DlAnalysisResultTopicProperties("results",3,1,java.time.Duration.ofDays(7),java.time.Duration.ofMillis(50)));
         var events = mock(DlAnalysisItemEventRepository.class);
         var entityManager = mock(EntityManager.class);
         var sample = new DlAnalysisReplaySource.Sample(
