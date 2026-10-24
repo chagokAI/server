@@ -11,15 +11,35 @@ import org.springframework.stereotype.Service;
 /** 업무 변경 트랜잭션 안에서 센터 사용자에게 알림을 저장한다. 외부 메시지는 전송하지 않는다. */
 @Service @RequiredArgsConstructor
 public class DomainNotificationService {
+    /**
+     * 라이브 재생 때문에 생긴 알림의 표시. 알림에는 출처 컬럼이 없고 스키마는 DB 담당 소유라, 이동 링크의 쿼리 인자로 남긴다.
+     * 화면 이동 경로는 그대로이고, 라이브 초기화가 이 표시가 있는 알림만 지운다.
+     */
+    public static final String LIVE_ORIGIN_QUERY = "origin=live";
+
     private final AppUserRepository users;
     private final NotificationRepository notifications;
     public static boolean shortage(BoxSpec box) {
         return box.getOnHandQty() != null && box.getSafetyQty() != null && box.getOnHandQty() < box.getSafetyQty();
     }
     public void inventory(BoxSpec box, boolean previouslyShort, boolean previouslyEnabled) {
+        inventory(box, previouslyShort, previouslyEnabled, false);
+    }
+
+    /** @param liveOrigin 라이브 재생의 차감이 만든 변화인지. 그렇다면 초기화가 지울 수 있게 표시한다 */
+    public void inventory(BoxSpec box, boolean previouslyShort, boolean previouslyEnabled, boolean liveOrigin) {
         if (Boolean.FALSE.equals(box.getAlertEnabled()) || !shortage(box) || previouslyShort && previouslyEnabled) return;
-        publish(box.getWarehouse().getId(), "INVENTORY", box.getCode() + " 안전 재고 미만",
-                "현재 " + box.getOnHandQty() + "개 / 안전 재고 " + box.getSafetyQty() + "개", "/boxes/inventory");
+        publish(box.getWarehouse().getId(), "INVENTORY", shortageTitle(box),
+                "현재 " + box.getOnHandQty() + "개 / 안전 재고 " + box.getSafetyQty() + "개",
+                liveOrigin ? liveLink("/boxes/inventory") : "/boxes/inventory");
+    }
+
+    public static String shortageTitle(BoxSpec box) {
+        return box.getCode() + " 안전 재고 미만";
+    }
+
+    public static String liveLink(String link) {
+        return link + (link.contains("?") ? "&" : "?") + LIVE_ORIGIN_QUERY;
     }
     public void publish(UUID warehouseId, String category, String title, String message, String link) {
         notifications.saveAll(users.findByWarehouseId(warehouseId).stream().map(user -> Notification.builder()

@@ -66,7 +66,8 @@ import tools.jackson.databind.json.JsonMapper;
 @AutoConfigureMockMvc
 @EmbeddedKafka(
         brokerProperties = {"auto.create.topics.enable=false", "group.initial.rebalance.delay.ms=0",
-                "log.segment.bytes=10485760", "log.index.size.max.bytes=1048576", "offsets.topic.num.partitions=3"},
+                "log.segment.bytes=10485760", "log.index.size.max.bytes=1048576", "offsets.topic.num.partitions=3",
+                "transaction.state.log.replication.factor=1", "transaction.state.log.min.isr=1"},
         bootstrapServersProperty = "spring.kafka.bootstrap-servers")
 class DlAnalysisFlowIntegrationTest {
 
@@ -398,7 +399,7 @@ class DlAnalysisFlowIntegrationTest {
     }
 
     @Test
-    void orphanResultIsDroppedAndDoesNotBlockLaterResults() throws Exception {
+    void exhaustedOrphanGoesToDeadLetterAndDoesNotBlockLaterResults() throws Exception {
         String orphanId = UUID.randomUUID().toString();
         reply(orphanId, known(orphanId, BARCODE));
 
@@ -406,6 +407,78 @@ class DlAnalysisFlowIntegrationTest {
         reply(eventId, known(eventId, BARCODE));
 
         assertThat(awaitFinished(eventId).get("status")).isEqualTo("SUCCEEDED");
+        // 행이 끝내 보이지 않은 결과도 버리지 않는다. 늦게 저장된 행이 있으면 사람이 다시 넣을 수 있게 남긴다
+        assertThat(awaitDeadLetter(orphanId).value()).contains("\"eventId\":\"" + orphanId + "\"");
+    }
+
+    @Test
+    void abortedWorkerTransactionIsNeverAppliedButCommittedOneIs() throws Exception {
+        // Worker가 결과를 보낸 뒤 트랜잭션을 끝내지 못하고 죽은 상황이다. 중단된 결과는 반영되면 안 되고,
+        // Worker가 같은 요청을 다시 처리해 확정한 결과만 한 번 반영되어야 한다
+        String eventId = accept();
+        Map<String, Object> props = KafkaTestUtils.producerProps(broker);
+        props.put(org.apache.kafka.clients.producer.ProducerConfig.TRANSACTIONAL_ID_CONFIG, "test-worker-" + UUID.randomUUID());
+        try (Producer<String, String> worker = new KafkaProducer<>(props, new StringSerializer(), new StringSerializer())) {
+            worker.initTransactions();
+            worker.beginTransaction();
+            worker.send(new ProducerRecord<>(resultTopic.topic(), eventId, known(eventId, BARCODE))).get();
+            worker.abortTransaction();
+
+            String later = accept();
+            reply(later, known(later, BARCODE));
+            assertThat(awaitFinished(later).get("status")).isEqualTo("SUCCEEDED");
+            assertThat(statusOf(eventId)).isEqualTo("PENDING");
+            assertThat(stock(boxSpecId)).isEqualTo(99);
+
+            worker.beginTransaction();
+            worker.send(new ProducerRecord<>(resultTopic.topic(), eventId, known(eventId, BARCODE))).get();
+            worker.commitTransaction();
+        }
+        assertThat(awaitFinished(eventId).get("status")).isEqualTo("SUCCEEDED");
+        assertThat(stock(boxSpecId)).isEqualTo(98);
+    }
+
+    @Test
+    void resultAndDeadLetterTopicsKeepSevenDaysForReplay() throws Exception {
+        // 재생으로 되살릴 수 있는 기간이 곧 복구 가능 기간이다. 브로커 기본값에 맡기지 않고 토픽 설정으로 고정한다
+        try (Admin admin = Admin.create(Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, broker.getBrokersAsString()))) {
+            for (String topic : List.of(resultTopic.topic(), resultTopic.deadLetterTopic())) {
+                var resource = new org.apache.kafka.common.config.ConfigResource(
+                        org.apache.kafka.common.config.ConfigResource.Type.TOPIC, topic);
+                var retention = admin.describeConfigs(List.of(resource)).all().get().get(resource).get("retention.ms");
+                assertThat(retention.value()).as(topic).isEqualTo(String.valueOf(Duration.ofDays(7).toMillis()));
+                // 브로커 기본값도 7일이라 값만 보면 설정하지 않아도 통과한다. 토픽에 직접 걸린 값인지 출처로 확인한다
+                assertThat(retention.source()).as(topic)
+                        .isEqualTo(org.apache.kafka.clients.admin.ConfigEntry.ConfigSource.DYNAMIC_TOPIC_CONFIG);
+            }
+            var deadLetter = admin.describeTopics(List.of(resultTopic.deadLetterTopic())).allTopicNames().get()
+                    .get(resultTopic.deadLetterTopic());
+            assertThat(deadLetter.partitions()).hasSize(resultTopic.partitions());
+        }
+        assertThat(environment.getProperty("spring.kafka.admin.modify-topic-configs", Boolean.class)).isTrue();
+    }
+
+    @Test
+    void nonRetryableFailureGoesToDeadLetterInsteadOfDisappearing() throws Exception {
+        String eventId = accept();
+        // 같은 이벤트의 사용 원장이 이미 있으면 포장 기록이 고유 제약에 걸린다. 재시도해도 같은 결과인 데이터 오류다
+        UUID packingRequest = UUID.nameUUIDFromBytes(("dl-packing:" + eventId).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        jdbc.update("""
+                insert into inventory_movement (id, warehouse_id, box_spec_id, request_id, type, delta_qty, before_qty, after_qty, occurred_on, created_at)
+                values (?, ?, ?, ?, 'ADJUSTMENT', 0, 100, 100, current_date, now())
+                """, UUID.randomUUID(), warehouseId, boxSpecId, packingRequest);
+
+        reply(eventId, known(eventId, BARCODE));
+
+        var deadLetter = awaitDeadLetter(eventId);
+        assertThat(deadLetter.value()).contains("\"eventId\":\"" + eventId + "\"");
+        assertThat(deadLetter.headers().lastHeader("kafka_dlt-original-topic")).isNotNull();
+        assertThat(statusOf(eventId)).isEqualTo("PENDING");
+        assertThat(stock(boxSpecId)).isEqualTo(100);
+
+        String later = accept();
+        reply(later, known(later, BARCODE));
+        assertThat(awaitFinished(later).get("status")).isEqualTo("SUCCEEDED");
     }
 
     @Test
@@ -793,6 +866,25 @@ class DlAnalysisFlowIntegrationTest {
             }
         }
         throw new AssertionError("요청 토픽에서 요청을 찾지 못했다: eventId=" + eventId);
+    }
+
+    /** 결과 데드레터 토픽에서 이 작업의 메시지를 찾는다. 앞선 테스트가 남긴 메시지는 키로 걸러 낸다. */
+    private ConsumerRecord<String, String> awaitDeadLetter(String eventId) {
+        Map<String, Object> props = KafkaTestUtils.consumerProps(broker, "dead-letter-reader-" + UUID.randomUUID(), false);
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        try (Consumer<String, String> reader = new DefaultKafkaConsumerFactory<>(
+                props, new StringDeserializer(), new StringDeserializer()).createConsumer()) {
+            reader.subscribe(List.of(resultTopic.deadLetterTopic()));
+            long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+            while (System.nanoTime() < deadline) {
+                for (ConsumerRecord<String, String> record : reader.poll(Duration.ofMillis(200))) {
+                    if (eventId.equals(record.key())) {
+                        return record;
+                    }
+                }
+            }
+        }
+        throw new AssertionError("데드레터 토픽에서 결과를 찾지 못했다: eventId=" + eventId);
     }
 
     private RecordMetadata reply(String eventId, String json) throws Exception {

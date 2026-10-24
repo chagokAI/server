@@ -1,5 +1,6 @@
 package com.skala.chagok.dlanalysis;
 
+import com.skala.chagok.domain.event.LiveEventIds;
 import java.util.List;
 import java.util.UUID;
 
@@ -46,10 +47,18 @@ public class DlAnalysisResultRecorder {
         if (!warehouseId.equals(event.getWarehouse().getId())) throw new IllegalArgumentException("이벤트 센터 불일치");
         // 라이브 대기는 중복 결과로 재포장하지 않는다. 정지 후에도 늦게 차감되는 경로를 차단한다.
         if (ItemEventStatus.WAITING.name().equals(event.getStatus())
-                && eventId.startsWith(DlAnalysisReplayFeeder.LIVE_EVENT_PREFIX)) return DlAnalysisOutcome.skipped();
+                && eventId.startsWith(LiveEventIds.PREFIX)) return DlAnalysisOutcome.skipped();
         if (!ItemEventStatus.PENDING.name().equals(event.getStatus()) && !ItemEventStatus.WAITING.name().equals(event.getStatus()))
             return DlAnalysisOutcome.skipped();
         List<Product> found = products.findByWarehouse_IdAndCodeAndIsActiveTrue(warehouseId, barcode);
+        // 대기 건은 이미 상품이 식별된 작업이다. 지금 다시 찾지 못해도 실패로 끝내지 않고 대기를 유지한다.
+        // 실패 기록은 PENDING만 바꾸므로 예전에는 「이미 처리됨」으로 남아 끝난 작업처럼 읽혔다.
+        if (found.size() != 1 && ItemEventStatus.WAITING.name().equals(event.getStatus())) {
+            var reason = found.isEmpty() ? DlAnalysisFailureReason.PRODUCT_NOT_FOUND : DlAnalysisFailureReason.PRODUCT_AMBIGUOUS;
+            log.warn("DL 분석 결과 대기 유지(상품 재식별 실패): eventId={}, reason={}, barcode={}, count={}",
+                    eventId, reason, barcode, found.size());
+            return DlAnalysisOutcome.skipped();
+        }
         if (found.isEmpty()) {
             return fail(eventId, DlAnalysisFailureReason.PRODUCT_NOT_FOUND, "barcode=" + barcode);
         }

@@ -1,5 +1,6 @@
 package com.skala.chagok.live;
 
+import com.skala.chagok.domain.event.LiveEventIds;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -25,7 +26,7 @@ public class LiveResetScheduler {
     @Scheduled(cron = "${chagok.live.reset.cron:0 */30 * * * *}", zone = "${chagok.timezone:Asia/Seoul}")
     public void tick() {
         var warehouses = jdbc.query("select distinct warehouse_id from item_event where event_id like ?",
-                (rs, i) -> rs.getObject(1, UUID.class), com.skala.chagok.dlanalysis.DlAnalysisReplayFeeder.LIVE_EVENT_PREFIX + "%");
+                (rs, i) -> rs.getObject(1, UUID.class), LiveEventIds.PREFIX + "%");
         for (var id : warehouses) {
             try { reset.reset(id); }
             catch (RuntimeException e) { log.warn("라이브 초기화 실패: warehouseId={}", id, e); }

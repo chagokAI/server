@@ -3,6 +3,8 @@ package com.skala.chagok.domain.job.repository;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.*;
+
+import com.skala.chagok.domain.event.LiveEventIds;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -17,14 +19,19 @@ import org.springframework.stereotype.Repository;
 public class ObservationBaselineRepository {
     private final NamedParameterJdbcTemplate jdbc;
 
-    public record Baseline(Map<UUID, Long> counts, long observedBoxCount, long estimatedBoxCount) {}
+    /**
+     * @param liveObservationCount 집계에 들어간 라이브 재생 이벤트 수. 라이브 초기화가 이 값이 있는 예측을 지우고 다시 계산하므로,
+     *                             0이 아니면 초기화 전까지만 유효한 결과다
+     */
+    public record Baseline(Map<UUID, Long> counts, long observedBoxCount, long estimatedBoxCount, long liveObservationCount) {}
 
     /** 일시 품절·대체 포장 때문에 원래 필요한 규격의 발주 수요가 줄지 않도록 한다. */
     public Baseline demand(UUID warehouseId, Instant from, Instant until) {
         return aggregate(warehouseId, from, until, """
                 select b.id as box_spec_id, count(*) as observations,
                     count(*) filter (where ideal.id is null) as observed,
-                    count(*) filter (where ideal.id is not null) as estimated
+                    count(*) filter (where ideal.id is not null) as estimated,
+                    count(*) filter (where e.event_id like :livePrefix) as live
                 from item_event e
                 left join product p on p.id = e.product_id and p.warehouse_id = e.warehouse_id and p.is_active = true
                 left join box_spec ideal on ideal.id = p.matched_box_spec_id
@@ -38,14 +45,16 @@ public class ObservationBaselineRepository {
     }
 
     private Baseline aggregate(UUID warehouseId, Instant from, Instant until, String query) {
-        Map<String, Object> params = Map.of("warehouseId", warehouseId, "from", Timestamp.from(from), "until", Timestamp.from(until));
+        Map<String, Object> params = Map.of("warehouseId", warehouseId, "from", Timestamp.from(from), "until", Timestamp.from(until),
+                "livePrefix", LiveEventIds.PREFIX + "%");
         Map<UUID, Long> counts = new HashMap<>();
-        long[] sources = {0, 0};
+        long[] sources = {0, 0, 0};
         jdbc.query(query, params, rs -> {
             counts.put(rs.getObject("box_spec_id", UUID.class), rs.getLong("observations"));
             sources[0] += rs.getLong("observed");
             sources[1] += rs.getLong("estimated");
+            sources[2] += rs.getLong("live");
         });
-        return new Baseline(Map.copyOf(counts), sources[0], sources[1]);
+        return new Baseline(Map.copyOf(counts), sources[0], sources[1], sources[2]);
     }
 }

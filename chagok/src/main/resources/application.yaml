@@ -62,12 +62,18 @@ spring:
     consumer:
       group-id: chagok-dl-result
       auto-offset-reset: earliest
+      # Worker는 결과 발행과 요청 오프셋 커밋을 한 트랜잭션으로 묶는다. 중단된 트랜잭션의 결과를 읽지 않도록 확정분만 읽는다.
+      # 입력기·데드레터 재투입처럼 트랜잭션 없이 보낸 결과는 그대로 보인다
+      isolation-level: read_committed
       value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
       properties:
         spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JacksonJsonDeserializer
         spring.json.value.default.type: com.skala.chagok.dlanalysis.DlAnalysisResult
         spring.json.use.type.headers: false
         spring.json.trusted.packages: com.skala.chagok.dlanalysis
+    # 결과 토픽 보존 기간 같은 토픽 설정을 이미 있는 토픽에도 맞춘다. 대상은 이 앱이 NewTopic으로 선언한 토픽뿐이다
+    admin:
+      modify-topic-configs: true
 
 # DL 분석 요청·결과 토픽. 메시지 형식은 docs/dl-kafka-contract.md, 복제 계수 1은 로컬 단일 브로커 기준이다
 chagok:
@@ -92,6 +98,10 @@ chagok:
       topic: chagok.dl.analysis-result.v1
       partitions: 3
       replicas: 1
+      # 결과를 다시 읽어 복구할 수 있는 기간. 데드레터 토픽(<topic>-dlt)도 같은 값을 쓴다
+      retention: 7d
+      # 라이브 입력기가 결과 토픽에 발행할 때 확인을 기다리는 상한. 요청 토픽의 publish-timeout과 따로 둔다
+      publish-timeout: 10s
   timezone: Asia/Seoul
   refresh-after-seconds: 300
   jobs:
