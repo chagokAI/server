@@ -58,6 +58,7 @@ validate 이전부터 `update`로 실행되던 이미지도 검증 실패 없이
 - 공통 서버 잠금: 기존 `.client-deploy/deploy.lock`
 
 수동 Compose 작업에도 `frontend.image.yaml`, `backend.image.yaml`을 기본 Compose 뒤에 포함해야 현재 버전을 유지한다.
+발표 전 DB를 리허설 전 상태로 되돌리는 스냅숏·복원 절차는 [데모 스냅숏과 복원](demo-snapshot.md)에 있다.
 운영 `.env`와 실제 키·토큰·DB 백업은 Git에 포함하지 않는다.
 단일 backend 교체 중 짧은 API 중단과 SSE 재접속이 발생할 수 있다.
 세션이 메모리에 저장된 구성에서는 backend 교체 후 다시 로그인해야 할 수 있다.
