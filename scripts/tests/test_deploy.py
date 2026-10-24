@@ -48,10 +48,16 @@ elif args[0] == "compose":
             print("postgres-container" if args[-1] == "postgres" else "backend-container")
     elif "up" in args:
         index = len(args) - 1 - args[::-1].index("-f")
-        image = re.search(r'image: "([^"]+)"', pathlib.Path(args[index + 1]).read_text())[1]
+        override = pathlib.Path(args[index + 1]).read_text()
+        image = re.search(r'image: "([^"]+)"', override)[1]
+        ddl = re.search(r"DDL_AUTO: (\S+)", override)
         state["current"] = state["images"][image]
+        state["ddl"] = ddl[1] if ddl else None
         save()
         if (state.get("bad_start") and state["current"] == state["new"]) or state.get("bad_rollback"):
+            fail()
+        # An image whose entities do not match the schema cannot start under validate.
+        if state["ddl"] == "validate" and state["current"] in state.get("validate_breaks", []):
             fail()
     else:
         fail()
@@ -60,7 +66,11 @@ elif args[0] == "exec":
         fail()
     print("mock database dump")
 elif args[0] == "inspect":
-    print(state["current"])
+    if "Config.Env" in args[2]:
+        if state.get("ddl"):
+            print("DDL_AUTO=" + state["ddl"])
+    else:
+        print(state["current"])
 elif args[0] == "pull":
     if state.get("bad_pull"):
         fail()
@@ -99,6 +109,8 @@ class DeploymentTests(unittest.TestCase):
             path.chmod(0o755)
         self.state = {
             "current": OLD_ID,
+            # The running backend predates validated deployments.
+            "ddl": "update",
             "new": NEW_ID,
             "images": {IMAGE: NEW_ID},
         }
@@ -154,6 +166,7 @@ class DeploymentTests(unittest.TestCase):
         self.assertFalse(any("down" in cmd or "prune" in cmd for cmd in self.commands()))
         override = (self.deploy_state / "backend.image.yaml").read_text()
         self.assertIn("DDL_AUTO: validate", override)
+        self.assertEqual((self.deploy_state / "previous-ddl-auto").read_text().strip(), "update")
         backups = list((self.root / "backups").glob("*.dump"))
         self.assertEqual(len(backups), 1)
         self.assertIn("mock database dump", backups[0].read_text())
@@ -208,6 +221,25 @@ class DeploymentTests(unittest.TestCase):
         self.assertIn(ROLLBACK, (self.deploy_state / "backend.image.yaml").read_text())
         self.assertFalse((self.deploy_state / "current-image").exists())
 
+    def test_restore_keeps_schema_mode_of_old_container(self):
+        # The old image only ran with update; forcing validate on restore left the API down.
+        self.state.update(bad_start=True, validate_breaks=[OLD_ID])
+        self.save()
+        result = self.run_deploy()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.current(), OLD_ID)
+        self.assertIn("Previous backend restored", result.stderr)
+        self.assertIn("DDL_AUTO: update", (self.deploy_state / "backend.image.yaml").read_text())
+        self.assertIn("restored", (self.deploy_state / "history.tsv").read_text())
+
+    def test_old_container_without_ddl_auto_is_restored_with_app_default(self):
+        self.state.update(bad_start=True, ddl=None)
+        self.save()
+        result = self.run_deploy()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.current(), OLD_ID)
+        self.assertIn("DDL_AUTO: update", (self.deploy_state / "backend.image.yaml").read_text())
+
     def test_html_from_api_is_failure_even_when_http_status_is_200(self):
         self.state["bad_api"] = True
         self.save()
@@ -225,12 +257,16 @@ class DeploymentTests(unittest.TestCase):
         self.assertIn("rollback-failed", (self.deploy_state / "history.tsv").read_text())
 
     def test_manual_rollback_restores_recorded_image(self):
+        self.state["validate_breaks"] = [OLD_ID]
+        self.save()
         first = self.run_deploy()
         self.assertEqual(first.returncode, 0, first.stderr)
         result = self.run_deploy(mode="rollback", image="")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.current(), OLD_ID)
         self.assertEqual((self.deploy_state / "current-image").read_text().strip(), ROLLBACK)
+        self.assertIn("DDL_AUTO: update", (self.deploy_state / "backend.image.yaml").read_text())
+        self.assertEqual((self.deploy_state / "previous-ddl-auto").read_text().strip(), "validate")
 
     def test_redeploying_same_image_preserves_previous_release(self):
         self.assertEqual(self.run_deploy().returncode, 0)
