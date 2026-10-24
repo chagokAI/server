@@ -68,6 +68,8 @@ tasks.withType(Test).configureEach {
         }
         systemProperty 'spring.jpa.hibernate.ddl-auto', System.getenv('DDL_AUTO') ?: 'update'
     }
+    // DB 주소만 막으면 .env의 브로커·계정·토큰이 그대로 들어온다. 테스트 JVM은 .env 가져오기 자체를 끈다.
+    systemProperty 'CHAGOK_ENV_FILE', layout.buildDirectory.file('test-env/no-project-env').get().asFile.absolutePath
     systemProperty 'chagok.jobs.scheduling-enabled', 'false'
     systemProperty 'chagok.jobs.worker-enabled', 'false'
     systemProperty 'chagok.auth.enabled', 'false'
