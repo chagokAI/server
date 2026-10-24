@@ -67,6 +67,17 @@ public class AgentDataRepository {
                 rs.getLong("shipments")));
     }
 
+    public List<BoxUsage> boxUsage(UUID warehouseId, Instant from, Instant to) {
+        String sql = "select e.product_id, bs.code as box, count(*) as n, avg(e.fill_rate_pct) as fill "
+                + "from item_event e left join box_spec bs on bs.id = e.box_spec_id "
+                + "where e.warehouse_id = :wh and e.occurred_at >= :from and e.occurred_at < :to and e.product_id is not null "
+                + "and (e.status = 'SUCCEEDED' or (e.status = 'WAITING' and e.failure_reason = 'NO_AVAILABLE_BOX')) "
+                + "group by e.product_id, bs.code order by e.product_id, bs.code";
+        return jdbc.query(sql, Map.of("wh", warehouseId, "from", Timestamp.from(from), "to", Timestamp.from(to)),
+                (rs, i) -> new BoxUsage(rs.getObject("product_id", UUID.class), rs.getString("box"), rs.getLong("n"),
+                        rs.getBigDecimal("fill") == null ? null : rs.getBigDecimal("fill").doubleValue()));
+    }
+
     public List<MonthlyShipment> monthlyShipments(UUID warehouseId, Instant from, Instant to, List<String> statuses,
                                                   ZoneId zone) {
         var params = new HashMap<String, Object>(Map.of("wh", warehouseId, "from", Timestamp.from(from),

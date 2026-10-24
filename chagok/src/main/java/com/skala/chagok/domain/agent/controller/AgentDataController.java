@@ -48,6 +48,13 @@ public class AgentDataController {
         return responses.of(service.productShipments(warehouseId, from, to, statuses));
     }
 
+    @GetMapping("/warehouses/{warehouseId}/box-usage")
+    public ApiResponse<List<BoxUsage>> boxUsage(@PathVariable UUID warehouseId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return responses.of(service.boxUsage(warehouseId, from, to));
+    }
+
     @GetMapping("/warehouses/{warehouseId}/monthly-shipments")
     public ApiResponse<List<MonthlyShipment>> monthlyShipments(@PathVariable UUID warehouseId,
             @RequestParam YearMonth fromMonth, @RequestParam YearMonth toMonth,

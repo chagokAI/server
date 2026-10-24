@@ -51,6 +51,16 @@ class AgentDataApiContractTests {
                 .andExpect(jsonPath("$.data[0].weightG").value(342));
     }
 
+    @Test void boxUsageReturnsActualAssignments() throws Exception {
+        UUID productId = UUID.randomUUID();
+        when(service.boxUsage(eq(warehouseId), eq(LocalDate.of(2026, 7, 23)), eq(LocalDate.of(2026, 10, 20))))
+                .thenReturn(List.of(new BoxUsage(productId, "2호", 87, 4.0), new BoxUsage(productId, null, 3, null)));
+        mvc.perform(get(path("/box-usage")).param("from", "2026-07-23").param("to", "2026-10-20"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].boxCode").value("2호"))
+                .andExpect(jsonPath("$.data[0].shipments").value(87))
+                .andExpect(jsonPath("$.data[1].boxCode").isEmpty());
+    }
+
     @Test void saveProposalReturnsIdAndItemCount() throws Exception {
         UUID proposalId = UUID.randomUUID();
         when(service.saveProposal(eq(warehouseId), eq(proposalId), any()))
