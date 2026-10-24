@@ -68,8 +68,8 @@ class LiveInputController {
     private State read(UUID warehouseId) {
         var input = feeder.getIfAvailable();
         boolean running = input != null && input.isRunning(warehouseId);
-        Long pending = jdbc.queryForObject("select count(*) from item_event where warehouse_id=? and event_id like 'live-%' and status='PENDING'",
-                Long.class, warehouseId);
+        Long pending = jdbc.queryForObject("select count(*) from item_event where warehouse_id=? and event_id like ? and status='PENDING'",
+                Long.class, warehouseId, DlAnalysisReplayFeeder.LIVE_EVENT_PREFIX + "%");
         return new State(input != null, running, pending == null ? 0 : pending);
     }
 

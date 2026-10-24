@@ -24,8 +24,8 @@ public class LiveResetScheduler {
 
     @Scheduled(cron = "${chagok.live.reset.cron:0 */30 * * * *}", zone = "${chagok.timezone:Asia/Seoul}")
     public void tick() {
-        var warehouses = jdbc.query("select distinct warehouse_id from item_event where event_id like 'live-%'",
-                (rs, i) -> rs.getObject(1, UUID.class));
+        var warehouses = jdbc.query("select distinct warehouse_id from item_event where event_id like ?",
+                (rs, i) -> rs.getObject(1, UUID.class), com.skala.chagok.dlanalysis.DlAnalysisReplayFeeder.LIVE_EVENT_PREFIX + "%");
         for (var id : warehouses) {
             try { reset.reset(id); }
             catch (RuntimeException e) { log.warn("라이브 초기화 실패: warehouseId={}", id, e); }
