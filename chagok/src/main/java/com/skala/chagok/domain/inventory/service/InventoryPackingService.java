@@ -4,6 +4,7 @@ import com.skala.chagok.domain.box.entity.BoxSpec;
 import com.skala.chagok.domain.box.repository.BoxSpecRepository;
 import com.skala.chagok.domain.inventory.entity.InventoryMovement;
 import com.skala.chagok.domain.inventory.repository.InventoryMovementRepository;
+import com.skala.chagok.domain.event.LiveEventIds;
 import com.skala.chagok.domain.notification.service.DomainNotificationService;
 import com.skala.chagok.domain.product.entity.Product;
 import com.skala.chagok.domain.product.service.ProductMatchingService;
@@ -57,7 +58,7 @@ public class InventoryPackingService {
                 .requestId(requestId).type("CONSUMPTION").deltaQty(-1L).beforeQty(before).afterQty(before - 1)
                 .occurredOn(now.atZone(properties.timezone()).toLocalDate()).createdAt(now)
                 .memo(MOVEMENT_MEMO_PREFIX + eventId).build());
-        notices.inventory(box, wasShort, !Boolean.FALSE.equals(box.getAlertEnabled()));
+        notices.inventory(box, wasShort, !Boolean.FALSE.equals(box.getAlertEnabled()), LiveEventIds.isLive(eventId));
         return new Result(box, best.fillRatePct());
     }
 }

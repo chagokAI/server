@@ -3,10 +3,12 @@ package com.skala.chagok.live;
 import com.skala.chagok.domain.event.LiveEventIds;
 import com.skala.chagok.domain.inventory.service.InventoryPackingService;
 import com.skala.chagok.domain.inventory.service.StockChangedEvent;
+import com.skala.chagok.domain.box.entity.BoxSpec;
 import com.skala.chagok.domain.box.repository.BoxSpecRepository;
 import com.skala.chagok.domain.warehouse.repository.WarehouseRepository;
 import com.skala.chagok.global.error.BusinessException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,14 +26,15 @@ public class LiveResetService {
     private final BoxSpecRepository boxes;
     private final NamedParameterJdbcTemplate jdbc;
     private final ApplicationEventPublisher events;
+    private final LiveDerivedDataCleaner derived;
     private final String jdbcUrl;
     private final boolean allowRemote;
 
     public LiveResetService(WarehouseRepository warehouses, BoxSpecRepository boxes,
-            NamedParameterJdbcTemplate jdbc, ApplicationEventPublisher events,
+            NamedParameterJdbcTemplate jdbc, ApplicationEventPublisher events, LiveDerivedDataCleaner derived,
             @Value("${spring.datasource.url}") String jdbcUrl,
             @Value("${chagok.live.allow-remote-database:false}") boolean allowRemote) {
-        this.warehouses=warehouses; this.boxes=boxes; this.jdbc=jdbc; this.events=events; this.jdbcUrl=jdbcUrl;
+        this.warehouses=warehouses; this.boxes=boxes; this.jdbc=jdbc; this.events=events; this.derived=derived; this.jdbcUrl=jdbcUrl;
         this.allowRemote=allowRemote;
     }
 
@@ -42,6 +45,7 @@ public class LiveResetService {
         var params = Map.of("warehouseId", warehouseId,
                 "memo", InventoryPackingService.MOVEMENT_MEMO_PREFIX + LiveEventIds.PREFIX + "%",
                 "prefix", LiveEventIds.PREFIX + "%");
+        var restored = new ArrayList<BoxSpec>();
         jdbc.query("""
                 select box_spec_id,count(*) as used from inventory_movement
                 where warehouse_id=:warehouseId and type='CONSUMPTION' and memo like :memo group by box_spec_id
@@ -49,12 +53,16 @@ public class LiveResetService {
             var box = boxes.findByIdAndWarehouseId(rs.getObject("box_spec_id", UUID.class), warehouseId).orElseThrow();
             if (box.getOnHandQty() == null) throw new IllegalStateException("초기화할 현재고가 없습니다.");
             box.changeStock(Math.addExact(box.getOnHandQty(), Math.toIntExact(rs.getLong("used"))), Instant.now());
+            restored.add(box);
         });
         boxes.flush();
         int movements = jdbc.update("delete from inventory_movement where warehouse_id=:warehouseId and type='CONSUMPTION' and memo like :memo", params);
         // 결과를 기다리는 접수 건은 남긴다. 지우면 늦은 결과가 고아 재시도로 소비 파티션을 멈춘다. 확정 후 차감은 다음 초기화가 되돌린다.
         int items = jdbc.update("delete from item_event where warehouse_id=:warehouseId and event_id like :prefix and status<>'PENDING'", params);
+        int notices = derived.removeLiveNotifications(warehouseId, restored);
+        int forecasts = derived.removeLiveForecasts(warehouseId);
         events.publishEvent(new StockChangedEvent(warehouseId, true));
-        log.info("라이브 변경분 초기화: warehouseId={}, movements={}, events={}", warehouseId, movements, items);
+        log.info("라이브 변경분 초기화: warehouseId={}, movements={}, events={}, notifications={}, forecastJobs={}",
+                warehouseId, movements, items, notices, forecasts);
     }
 }

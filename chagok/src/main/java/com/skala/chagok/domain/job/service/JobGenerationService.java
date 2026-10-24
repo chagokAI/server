@@ -49,7 +49,7 @@ public class JobGenerationService {
                 : List.of("기본 매칭이 없는 완료 이력은 관측 박스로 분류한 참고 수요입니다. 실제 박스 소모량 예측이 아닙니다."));
         if (lines.stream().anyMatch(line -> "DAYS".equals(line.safetySource())))
             insights.add("안전재고 수량이 없는 규격은 등록된 안전재고 일수 × 관측 일평균을 올림해 계산했습니다.");
-        Map<String, Object> summary = Map.of("method", "OBSERVATION_BASELINE", "sourceStart", from.toString(),
+        Map<String, Object> summary = new LinkedHashMap<>(Map.of("method", "OBSERVATION_BASELINE", "sourceStart", from.toString(),
                 "sourceEndExclusive", until.toString(), "lookbackDays", properties.lookbackDays(),
                 "sampleCount", sampleCount, "orderUnit", properties.orderUnit(),
                 "observedBoxCount", baseline.observedBoxCount(), "estimatedBoxCount", baseline.estimatedBoxCount(),
@@ -61,7 +61,8 @@ public class JobGenerationService {
                     if ("DAYS".equals(line.safetySource())) safety.put("days", line.spec().getSafetyDays());
                     return safety;
                 }).toList(),
-                "insights", insights);
+                "insights", insights));
+        summary.put("liveObservationCount", baseline.liveObservationCount());
         var proposal = proposals.saveAndFlush(ProcurementProposal.builder().warehouse(job.getWarehouse())
                 .targetMonth(job.getTargetMonth()).jobId(job.getId()).dataAsOf(until).summary(summary).build());
         items.saveAll(lines.stream().map(line -> ProcurementProposalItem.builder().proposal(proposal).boxSpec(line.spec())
@@ -77,7 +78,10 @@ public class JobGenerationService {
                 .targetMonth(job.getTargetMonth()).dataAsOf(until).generatedAt(jobClock.instant()).result(result).build());
         job.succeed(proposal.getId(), cost.getId(), until, jobClock.instant());
         jobs.flush();
+        // 라이브 재생 관측이 섞인 결과는 라이브 초기화가 지우고 다시 계산한다. 그 결과의 알림도 함께 지울 수 있게 표시한다
         notices.publish(job.getWarehouse().getId(), "AI", job.getTargetMonth() + " 참고 제안서 생성",
-                "관측 기반 참고 계산이 완료되었습니다. 실제 소모량 예측이 아닙니다.", "/orders");
+                "관측 기반 참고 계산이 완료되었습니다. 실제 소모량 예측이 아닙니다.",
+                baseline.liveObservationCount() > 0
+                        ? com.skala.chagok.domain.notification.service.DomainNotificationService.liveLink("/orders") : "/orders");
     }
 }
