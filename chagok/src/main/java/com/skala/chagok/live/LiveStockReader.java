@@ -26,7 +26,13 @@ public class LiveStockReader {
                       Integer innerWidthMm, Integer innerDepthMm, Integer innerHeightMm, Integer version) {
     }
 
-    public record Snapshot(Instant at, List<Box> boxes) {
+    /**
+     * @param reason 화면이 장면을 다시 그릴지 판단하는 사유. connect(연결 직후)·reset(라이브 초기화)은 장면을 비우고,
+     *               stock(입고·실사 등)은 재고 숫자만 바꾼다. 조회 직후에는 비어 있고 전송 시점에 붙인다
+     */
+    public record Snapshot(Instant at, List<Box> boxes, String reason) {
+        public Snapshot(Instant at, List<Box> boxes) { this(at, boxes, null); }
+        public Snapshot withReason(String value) { return new Snapshot(at, boxes, value); }
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)

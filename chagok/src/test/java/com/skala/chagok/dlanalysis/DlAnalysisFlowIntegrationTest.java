@@ -493,9 +493,15 @@ class DlAnalysisFlowIntegrationTest {
         resultListener.onResult(knownResult(live));
         assertThat(stock(boxSpecId)).isEqualTo(98);
 
+        var response = mvc.perform(get("/api/v1/warehouses/" + warehouseId + "/live-stream")
+                        .accept(org.springframework.http.MediaType.TEXT_EVENT_STREAM))
+                .andExpect(request().asyncStarted()).andReturn().getResponse();
         liveReset.reset(warehouseId);
         liveReset.reset(warehouseId);
 
+        // 초기화 snapshot은 화면이 라이브 장면을 비우도록 입고·실사와 다른 사유로 보낸다.
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                assertThat(response.getContentAsString()).contains("\"reason\":\"reset\""));
         assertThat(stock(boxSpecId)).isEqualTo(99);
         assertThat(movementCount()).isEqualTo(1);
         assertThat(statusOf(ordinary)).isEqualTo("SUCCEEDED");

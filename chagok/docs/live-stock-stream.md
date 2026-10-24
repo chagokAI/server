@@ -6,7 +6,7 @@
 
 로그인한 센터의 `GET /api/v1/warehouses/{warehouseId}/live-stream`을 EventSource로 구독한다. 같은 출처의 세션 쿠키를 사용한다. 연결 직후 활성 박스의 `snapshot`을 보낸다. 이후 확정된 DL 처리 결과는 `packed`, `waiting`, `failed`, 입고·실사·라이브 초기화는 `snapshot`이다. 트랜잭션이 롤백되면 결과를 전송하지 않는다.
 
-- `snapshot`: `{at, boxes:[{id,code,name,onHandQty,innerWidthMm,innerDepthMm,innerHeightMm,version}]}`.
+- `snapshot`: `{at, boxes:[{id,code,name,onHandQty,innerWidthMm,innerDepthMm,innerHeightMm,version}], reason}`. `reason`은 `connect`(연결 직후)·`reset`(라이브 초기화)·`stock`(입고·실사)이다. 화면은 `connect`·`reset`에서만 라이브 장면을 비우고 `stock`에서는 재고 숫자만 바꾼다.
 - 처리 결과: `{eventId,observedAt,status,reason,product,box,fillRatePct,itemMm}`. product는 `{id,code,name}`, box는 snapshot과 같은 구조이며 연결되지 않으면 null이다. 사용자 이름·사번·비밀번호·사진 경로는 보내지 않는다. 로그아웃·세션 만료 시 같은 세션의 다른 탭 연결도 종료한다.
 - `packed.box.onHandQty`는 커밋 후 읽은 현재고다. 동시에 더 진행된 포장이 있으면 그 변경까지 포함할 수 있다. 프런트엔드는 box.version이 낮은 늦은 값으로 현재고를 덮지 않는다.
 - 물품 치수는 이벤트의 DL 측정값을 우선 표시하고, 없으면 상품 치수를 사용한다. 박스 선택은 기존 서버 상품 매칭 기준이다.

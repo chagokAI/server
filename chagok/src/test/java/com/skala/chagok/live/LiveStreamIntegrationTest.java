@@ -80,7 +80,10 @@ class LiveStreamIntegrationTest {
         UUID box = jdbc.queryForObject("select id from box_spec where warehouse_id=? and is_active=true", UUID.class, warehouseId);
         inventory.receive(warehouseId, new com.skala.chagok.domain.inventory.dto.InventoryReceiptRequest(
                 UUID.randomUUID(), box, 0, null, 5, java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul")), "live receipt"));
-        assertThat(response.getContentAsString()).contains("\"onHandQty\":12");
+        // 화면 전송은 센터 전송 스레드에서 비동기로 일어난다. 입고 snapshot은 장면을 지우지 않도록 사유를 함께 보낸다.
+        org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5)).untilAsserted(() ->
+                assertThat(response.getContentAsString()).contains("\"onHandQty\":12", "\"reason\":\"stock\""));
+        assertThat(response.getContentAsString()).contains("\"reason\":\"connect\"");
         assertThat(response.getContentAsString().split("event:snapshot", -1)).hasSize(3);
     }
 }

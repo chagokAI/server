@@ -40,7 +40,8 @@ public class LiveOutcomeRelay {
     public void stockChanged(StockChangedEvent event) {
         if (!hub.hasSubscribers(event.warehouseId())) return;
         try {
-            hub.publish(event.warehouseId(), "snapshot", reader.snapshot(event.warehouseId()));
+            hub.publish(event.warehouseId(), "snapshot",
+                    reader.snapshot(event.warehouseId()).withReason(event.liveReset() ? "reset" : "stock"));
         } catch (RuntimeException e) {
             log.warn("라이브 재고 전송 실패: warehouseId={}", event.warehouseId(), e);
             hub.disconnect(event.warehouseId());

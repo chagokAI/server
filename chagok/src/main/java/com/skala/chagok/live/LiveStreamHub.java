@@ -66,7 +66,7 @@ public class LiveStreamHub {
             group.add(subscription);
             try {
                 if (subscription.session != null) subscription.session.attach(subscription);
-                if (!send(subscription, SseEmitter.event().name("snapshot").data(reader.snapshot(warehouseId))))
+                if (!send(subscription, SseEmitter.event().name("snapshot").data(reader.snapshot(warehouseId).withReason("connect"))))
                     throw new BusinessException(ErrorCode.TEMPORARILY_UNAVAILABLE);
                 return emitter;
             } catch (RuntimeException e) {
