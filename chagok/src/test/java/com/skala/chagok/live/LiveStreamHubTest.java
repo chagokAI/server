@@ -68,22 +68,66 @@ class LiveStreamHubTest {
         } finally { release.countDown(); pool.shutdownNow(); }
     }
 
-    @Test void publicationWaitsForTheInitialSnapshot() throws Exception {
+    // 커밋 직후 발행은 Kafka 소비 스레드에서 불린다. 발행이 화면 전송을 기다리면 모든 센터의 결과 처리가 멈춘다.
+    @Test void aPublicationDuringTheInitialSnapshotArrivesAfterItWithoutBlockingThePublisher() throws Exception {
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         when(reader.snapshot(warehouse)).thenAnswer(invocation -> {
             entered.countDown(); assertThat(release.await(5,TimeUnit.SECONDS)).isTrue(); return snapshot();
         });
-        var hub = new LiveStreamHub(reader, properties());
+        var emitter = new RecordingEmitter(Integer.MAX_VALUE);
+        var hub = new LiveStreamHub(reader, properties(), () -> emitter);
         var pool = Executors.newFixedThreadPool(2);
         try {
             var subscribing = pool.submit(() -> hub.subscribe(warehouse));
             assertThat(entered.await(5,TimeUnit.SECONDS)).isTrue();
-            var publishing = pool.submit(() -> hub.publish(warehouse, "packed", "result"));
-            assertThatThrownBy(() -> publishing.get(150,TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+            pool.submit(() -> hub.publish(warehouse, "packed", "result")).get(150, TimeUnit.MILLISECONDS);
             release.countDown();
             subscribing.get(5,TimeUnit.SECONDS);
-            publishing.get(5,TimeUnit.SECONDS);
+            await(() -> emitter.names.size() == 2);
+            assertThat(emitter.names).containsExactly("snapshot", "packed");
         } finally { release.countDown(); pool.shutdownNow(); }
+    }
+
+    @Test void aStalledBrowserDoesNotBlockLaterPublications() throws Exception {
+        when(reader.snapshot(warehouse)).thenReturn(snapshot());
+        var emitter = new RecordingEmitter(2);
+        var hub = new LiveStreamHub(reader, properties(), () -> emitter);
+        hub.subscribe(warehouse);
+        var pool = Executors.newSingleThreadExecutor();
+        try {
+            pool.submit(() -> {
+                hub.publish(warehouse, "packed", "first");
+                hub.publish(warehouse, "packed", "second");
+                hub.heartbeat();
+            }).get(300, TimeUnit.MILLISECONDS);
+            emitter.release.countDown();
+            await(() -> emitter.names.size() == 3);
+            assertThat(emitter.names).containsExactly("snapshot", "packed", "packed");
+        } finally { emitter.release.countDown(); pool.shutdownNow(); }
+    }
+
+    private static void await(java.util.function.BooleanSupplier condition) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (!condition.getAsBoolean()) {
+            if (System.nanoTime() > deadline) throw new AssertionError("condition not met within 5s");
+            Thread.sleep(10);
+        }
+    }
+
+    /** 브라우저 쓰기를 대신한다. blockFrom번째 전송부터 release 전까지 응답하지 않는 느린 연결을 흉내 낸다. */
+    private static final class RecordingEmitter extends org.springframework.web.servlet.mvc.method.annotation.SseEmitter {
+        final List<String> names = new CopyOnWriteArrayList<>();
+        final CountDownLatch release = new CountDownLatch(1);
+        private final int blockFrom;
+        RecordingEmitter(int blockFrom) { this.blockFrom = blockFrom; }
+        @Override public void send(SseEventBuilder builder) throws java.io.IOException {
+            String text = builder.build().iterator().next().getData().toString();
+            if (text.startsWith("event:")) names.add(text.substring(6, text.indexOf('\n')));
+            if (names.size() >= blockFrom) {
+                try { release.await(5, TimeUnit.SECONDS); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            }
+        }
     }
 }

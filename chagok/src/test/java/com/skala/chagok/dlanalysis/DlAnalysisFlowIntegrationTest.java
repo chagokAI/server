@@ -442,18 +442,22 @@ class DlAnalysisFlowIntegrationTest {
         String packed = accept();
         resultListener.onResult(knownResult(packed));
         resultListener.onResult(knownResult(packed));
-        assertThat(response.getContentAsString()).contains("event:packed", "\"onHandQty\":99", packed);
+        // 화면 전송은 센터 전송 스레드에서 비동기로 일어난다.
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(response.getContentAsString())
+                .contains("event:packed", "\"onHandQty\":99", packed));
         assertThat(response.getContentAsString()).contains("\"version\":1");
         assertThat(response.getContentAsString().split("event:packed", -1)).hasSize(2);
 
         jdbc.update("update box_spec set on_hand_qty=0 where id=?", boxSpecId);
         String waiting = accept();
         resultListener.onResult(knownResult(waiting));
-        assertThat(response.getContentAsString()).contains("event:waiting", "NO_AVAILABLE_BOX", waiting);
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(response.getContentAsString())
+                .contains("event:waiting", "NO_AVAILABLE_BOX", waiting));
 
         String failedId = accept();
         resultListener.onResult(JSON.readValue(unknown(failedId), DlAnalysisResult.class));
-        assertThat(response.getContentAsString()).contains("event:failed", "UNKNOWN_ITEM", failedId);
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(response.getContentAsString())
+                .contains("event:failed", "UNKNOWN_ITEM", failedId));
     }
 
     @Test void replayUsesOnlyTheResultTopicAndTheSamePackingPathThenWrapsItsCursor() throws Exception {
