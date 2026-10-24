@@ -50,10 +50,6 @@ interface DlAnalysisItemEventRepository extends Repository<ItemEvent, ItemEventI
             @Param("to") String to);
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
-    @Query("update ItemEvent e set e.status = :to where e.id.eventId = :eventId and e.status = :from")
-    int changeStatusIfInStatus(@Param("eventId") String eventId, @Param("from") String from, @Param("to") String to);
-
-    @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("update ItemEvent e set e.status = 'FAILED', e.failureReason = :reason, e.failureMessage = :detail "
             + "where e.id.eventId = :eventId and e.status = 'PENDING'")
     int failWithReason(@Param("eventId") String eventId, @Param("reason") String reason, @Param("detail") String detail);
@@ -73,10 +69,6 @@ interface DlAnalysisItemEventRepository extends Repository<ItemEvent, ItemEventI
     default int markSucceeded(String eventId, Product product, BoxSpec boxSpec, BigDecimal fillRatePct) {
         return completeIfInStatus(eventId, product, boxSpec, fillRatePct,
                 ItemEventStatus.PENDING.name(), ItemEventStatus.SUCCEEDED.name());
-    }
-
-    default int markFailed(String eventId) {
-        return changeStatusIfInStatus(eventId, ItemEventStatus.PENDING.name(), ItemEventStatus.FAILED.name());
     }
 
     interface Snapshot {
