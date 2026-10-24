@@ -50,6 +50,14 @@ public class DlAnalysisResultRecorder {
         if (!ItemEventStatus.PENDING.name().equals(event.getStatus()) && !ItemEventStatus.WAITING.name().equals(event.getStatus()))
             return DlAnalysisOutcome.skipped();
         List<Product> found = products.findByWarehouse_IdAndCodeAndIsActiveTrue(warehouseId, barcode);
+        // 대기 건은 이미 상품이 식별된 작업이다. 지금 다시 찾지 못해도 실패로 끝내지 않고 대기를 유지한다.
+        // 실패 기록은 PENDING만 바꾸므로 예전에는 「이미 처리됨」으로 남아 끝난 작업처럼 읽혔다.
+        if (found.size() != 1 && ItemEventStatus.WAITING.name().equals(event.getStatus())) {
+            var reason = found.isEmpty() ? DlAnalysisFailureReason.PRODUCT_NOT_FOUND : DlAnalysisFailureReason.PRODUCT_AMBIGUOUS;
+            log.warn("DL 분석 결과 대기 유지(상품 재식별 실패): eventId={}, reason={}, barcode={}, count={}",
+                    eventId, reason, barcode, found.size());
+            return DlAnalysisOutcome.skipped();
+        }
         if (found.isEmpty()) {
             return fail(eventId, DlAnalysisFailureReason.PRODUCT_NOT_FOUND, "barcode=" + barcode);
         }
