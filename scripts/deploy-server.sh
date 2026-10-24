@@ -6,7 +6,12 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 mode=${1:-}
 image=${2:-}
 config=${3:?Set the absolute server configuration path as the third argument}
+requested_live_feeder=${4:-}
+requested_live_allow_remote=${5:-}
 [[ "$mode" == deploy || "$mode" == rollback ]] || die 'Use: deploy IMAGE CONFIG | rollback "" CONFIG'
+for value in "$requested_live_feeder" "$requested_live_allow_remote"; do
+  [[ -z "$value" || "$value" = true || "$value" = false ]] || die 'Live settings must be true or false'
+done
 [ -f "$config" ] || die "Deployment config not found: $config"
 
 # This file is maintained by the server administrator and can define Bash arrays.
@@ -59,8 +64,15 @@ old_image_id=$(docker inspect --format '{{.Image}}' "$container")
 [[ "$old_image_id" =~ ^sha256:[a-f0-9]{64}$ ]] || die 'Cannot determine current backend image'
 rollback_image="chagok-server-rollback:${old_image_id#sha256:}"
 # Restored images keep the schema mode their container actually ran with. The app defaults to update.
-old_ddl_auto=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container" | sed -n 's/^DDL_AUTO=//p')
+old_environment=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container")
+old_ddl_auto=$(printf '%s\n' "$old_environment" | sed -n 's/^DDL_AUTO=//p')
 old_ddl_auto=${old_ddl_auto:-update}
+old_live_feeder=$(printf '%s\n' "$old_environment" | sed -n 's/^LIVE_FEEDER_ENABLED=//p')
+old_live_allow_remote=$(printf '%s\n' "$old_environment" | sed -n 's/^LIVE_ALLOW_REMOTE_DATABASE=//p')
+old_live_feeder=${old_live_feeder:-false}
+old_live_allow_remote=${old_live_allow_remote:-false}
+next_live_feeder=${requested_live_feeder:-$old_live_feeder}
+next_live_allow_remote=${requested_live_allow_remote:-$old_live_allow_remote}
 # New releases must match the current schema; Hibernate does not change it.
 next_ddl_auto=validate
 
@@ -69,6 +81,13 @@ if [ "$mode" = rollback ]; then
   image=$(cat "$DEPLOY_STATE_DIR/previous-image")
   [[ "$image" =~ ^chagok-server-rollback:[a-f0-9]{64}$ ]] || die 'Invalid recorded rollback image'
   if [ -f "$DEPLOY_STATE_DIR/previous-ddl-auto" ]; then next_ddl_auto=$(cat "$DEPLOY_STATE_DIR/previous-ddl-auto"); fi
+  # Older deployment records predate live settings and use the application's disabled defaults.
+  next_live_feeder=false
+  next_live_allow_remote=false
+  if [ -f "$DEPLOY_STATE_DIR/previous-live-env" ]; then
+    next_live_feeder=$(sed -n 's/^LIVE_FEEDER_ENABLED=//p' "$DEPLOY_STATE_DIR/previous-live-env")
+    next_live_allow_remote=$(sed -n 's/^LIVE_ALLOW_REMOTE_DATABASE=//p' "$DEPLOY_STATE_DIR/previous-live-env")
+  fi
 else
   prefix="$image_repository@sha256:"
   [[ "$image" = "$prefix"* ]] || die "Image must belong to $image_repository and use a digest"
@@ -78,6 +97,9 @@ else
   docker pull "$image"
 fi
 [[ "$old_ddl_auto" =~ ^[a-z-]+$ && "$next_ddl_auto" =~ ^[a-z-]+$ ]] || die 'Invalid DDL_AUTO value'
+for value in "$old_live_feeder" "$old_live_allow_remote" "$next_live_feeder" "$next_live_allow_remote"; do
+  [[ "$value" = true || "$value" = false ]] || die 'Live settings must be true or false'
+done
 next_image_id=$(docker image inspect --format '{{.Id}}' "$image")
 
 check_http() {
@@ -100,7 +122,8 @@ smoke() {
   return 1
 }
 
-if [ "$next_image_id" = "$old_image_id" ]; then
+if [ "$next_image_id" = "$old_image_id" ] && [ "$next_live_feeder" = "$old_live_feeder" ] \
+    && [ "$next_live_allow_remote" = "$old_live_allow_remote" ]; then
   smoke || die 'The existing backend failed its smoke checks'
   echo 'The requested image is already running; rollback history was preserved.'
   exit 0
@@ -128,12 +151,15 @@ docker image tag "$old_image_id" "$rollback_image"
 old_current_record=''
 old_previous_record=''
 old_previous_ddl_record=''
+old_previous_live_record=''
 if [ -f "$DEPLOY_STATE_DIR/current-image" ]; then old_current_record=$(cat "$DEPLOY_STATE_DIR/current-image"); fi
 if [ -f "$DEPLOY_STATE_DIR/previous-image" ]; then old_previous_record=$(cat "$DEPLOY_STATE_DIR/previous-image"); fi
 if [ -f "$DEPLOY_STATE_DIR/previous-ddl-auto" ]; then old_previous_ddl_record=$(cat "$DEPLOY_STATE_DIR/previous-ddl-auto"); fi
+if [ -f "$DEPLOY_STATE_DIR/previous-live-env" ]; then old_previous_live_record=$(cat "$DEPLOY_STATE_DIR/previous-live-env"); fi
 release_compose=("${compose[@]}" -f "$override")
 write_image() {
-  printf 'services:\n  backend:\n    image: "%s"\n    environment:\n      DDL_AUTO: %s\n' "$1" "$2" > "$override.tmp"
+  printf 'services:\n  backend:\n    image: "%s"\n    environment:\n      DDL_AUTO: %s\n      LIVE_FEEDER_ENABLED: "%s"\n      LIVE_ALLOW_REMOTE_DATABASE: "%s"\n' \
+    "$1" "$2" "$3" "$4" > "$override.tmp"
   mv -- "$override.tmp" "$override"
 }
 start_backend() {
@@ -159,7 +185,8 @@ restore_on_failure() {
     restore_record current-image "$old_current_record"
     restore_record previous-image "$old_previous_record"
     restore_record previous-ddl-auto "$old_previous_ddl_record"
-    if write_image "$rollback_image" "$old_ddl_auto" && start_backend && smoke; then
+    restore_record previous-live-env "$old_previous_live_record"
+    if write_image "$rollback_image" "$old_ddl_auto" "$old_live_feeder" "$old_live_allow_remote" && start_backend && smoke; then
       record restored "$rollback_image"
       echo 'Previous backend restored. This deployment remains failed.' >&2
     else
@@ -174,14 +201,16 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-write_image "$image" "$next_ddl_auto"
+write_image "$image" "$next_ddl_auto" "$next_live_feeder" "$next_live_allow_remote"
 start_backend
 smoke || die 'Backend or API smoke checks failed'
 printf '%s\n' "$rollback_image" > "$DEPLOY_STATE_DIR/previous-image.tmp"
 printf '%s\n' "$old_ddl_auto" > "$DEPLOY_STATE_DIR/previous-ddl-auto.tmp"
+printf 'LIVE_FEEDER_ENABLED=%s\nLIVE_ALLOW_REMOTE_DATABASE=%s\n' "$old_live_feeder" "$old_live_allow_remote" > "$DEPLOY_STATE_DIR/previous-live-env.tmp"
 printf '%s\n' "$image" > "$DEPLOY_STATE_DIR/current-image.tmp"
 mv -- "$DEPLOY_STATE_DIR/previous-image.tmp" "$DEPLOY_STATE_DIR/previous-image"
 mv -- "$DEPLOY_STATE_DIR/previous-ddl-auto.tmp" "$DEPLOY_STATE_DIR/previous-ddl-auto"
+mv -- "$DEPLOY_STATE_DIR/previous-live-env.tmp" "$DEPLOY_STATE_DIR/previous-live-env"
 mv -- "$DEPLOY_STATE_DIR/current-image.tmp" "$DEPLOY_STATE_DIR/current-image"
 record "$mode" "$image"
 trap - EXIT HUP INT TERM

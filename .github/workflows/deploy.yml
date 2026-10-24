@@ -75,6 +75,8 @@ jobs:
           DEPLOY_USER: ${{ vars.DEPLOY_USER }}
           DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
           DEPLOY_CONFIG: ${{ vars.DEPLOY_CONFIG }}
+          LIVE_FEEDER_ENABLED: ${{ vars.LIVE_FEEDER_ENABLED || 'false' }}
+          LIVE_ALLOW_REMOTE_DATABASE: ${{ vars.LIVE_ALLOW_REMOTE_DATABASE || 'false' }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
         run: |

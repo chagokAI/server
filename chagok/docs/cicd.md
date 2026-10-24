@@ -27,6 +27,13 @@ server 저장소의 `production` Environment에 다음 값을 등록한다.
 
 `DEPLOY_ENABLED`는 Environment 안이 아닌 저장소 Variables에 등록한다.
 초기에는 `false`로 두고 CI·이미지 발행을 확인한 뒤 활성화한다.
+라이브 물류 재생을 사용할 때는 같은 저장소 Variables에 `LIVE_FEEDER_ENABLED=true`,
+`LIVE_ALLOW_REMOTE_DATABASE=true`를 등록한다. 두 변수는 미등록 시 `false`이며,
+Server Deploy가 SSH 배포 스크립트를 거쳐 backend 컨테이너의 환경변수로 전달한다.
+`postgres` 같은 Docker 서비스 이름으로 접속하는 DB도 loopback 주소가 아니므로 라이브 재생에는 원격 DB 허용이 필요하다.
+기능을 활성화해도 물품 투입은 화면에서 재생을 누를 때 시작한다.
+변수 변경만으로 배포가 시작되지는 않는다. main에 push하거나 Server Deploy를 main으로 수동 실행해야 적용된다.
+같은 이미지여도 두 변수의 값이 바뀌면 backend를 다시 생성한다.
 이미지 발행은 GitHub가 자동 제공하는 `GITHUB_TOKEN`과 해당 작업의 `packages: write` 권한을 사용한다.
 server 저장소도 client와 별도로 Secrets 등록이 필요하며 SSH 키 자체는 재사용한다.
 
@@ -47,6 +54,7 @@ backend 배포는 client의 서버 잠금 파일을 함께 사용하므로 서�
 운영 override는 `DDL_AUTO=validate`를 지정한다. 이 배포 스크립트는 Hibernate의 자동 스키마 변경을 수행하지 않는다.
 새 코드가 현재 스키마와 호환되지 않으면 시작이 실패하고 이전 이미지로 복원한다.
 복원과 Server Rollback은 되돌릴 이미지가 원래 실행되던 `DDL_AUTO` 값(`previous-ddl-auto`)을 그대로 사용한다.
+두 라이브 환경변수도 이전 실행값(`previous-live-env`)으로 함께 복원한다.
 validate 이전부터 `update`로 실행되던 이미지도 검증 실패 없이 되돌릴 수 있다.
 스키마 변경이 필요한 릴리스는 별도 마이그레이션을 검토한 뒤 배포한다.
 이미지 롤백은 DB 데이터를 이전 시점으로 되돌리지 않는다.
@@ -64,4 +72,4 @@ validate 이전부터 `update`로 실행되던 이미지도 검증 실패 없이
 세션이 메모리에 저장된 구성에서는 backend 교체 후 다시 로그인해야 할 수 있다.
 
 GitHub Actions에서 Server Deploy / Server Rollback의 Run workflow를 main으로 실행할 수 있다.
-`history.tsv`, `current-image`, `previous-image`, `previous-ddl-auto`와 로컬 롤백 이미지는 서버에 보존한다.
+`history.tsv`, `current-image`, `previous-image`, `previous-ddl-auto`, `previous-live-env`와 로컬 롤백 이미지는 서버에 보존한다.
