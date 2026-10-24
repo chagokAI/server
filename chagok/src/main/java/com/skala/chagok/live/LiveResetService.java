@@ -1,6 +1,6 @@
 package com.skala.chagok.live;
 
-import com.skala.chagok.dlanalysis.DlAnalysisReplayFeeder;
+import com.skala.chagok.domain.event.LiveEventIds;
 import com.skala.chagok.domain.inventory.service.InventoryPackingService;
 import com.skala.chagok.domain.inventory.service.StockChangedEvent;
 import com.skala.chagok.domain.box.repository.BoxSpecRepository;
@@ -40,8 +40,8 @@ public class LiveResetService {
         LiveDatabaseGuard.requireAllowed(jdbcUrl, allowRemote, "live reset");
         warehouses.lockById(warehouseId).orElseThrow(() -> BusinessException.notFound("센터"));
         var params = Map.of("warehouseId", warehouseId,
-                "memo", InventoryPackingService.MOVEMENT_MEMO_PREFIX + DlAnalysisReplayFeeder.LIVE_EVENT_PREFIX + "%",
-                "prefix", DlAnalysisReplayFeeder.LIVE_EVENT_PREFIX + "%");
+                "memo", InventoryPackingService.MOVEMENT_MEMO_PREFIX + LiveEventIds.PREFIX + "%",
+                "prefix", LiveEventIds.PREFIX + "%");
         jdbc.query("""
                 select box_spec_id,count(*) as used from inventory_movement
                 where warehouse_id=:warehouseId and type='CONSUMPTION' and memo like :memo group by box_spec_id

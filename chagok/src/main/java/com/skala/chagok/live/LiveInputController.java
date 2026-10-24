@@ -1,5 +1,6 @@
 package com.skala.chagok.live;
 
+import com.skala.chagok.domain.event.LiveEventIds;
 import com.skala.chagok.dlanalysis.DlAnalysisReplayFeeder;
 import com.skala.chagok.global.error.BusinessException;
 import com.skala.chagok.global.error.ErrorCode;
@@ -69,7 +70,7 @@ class LiveInputController {
         var input = feeder.getIfAvailable();
         boolean running = input != null && input.isRunning(warehouseId);
         Long pending = jdbc.queryForObject("select count(*) from item_event where warehouse_id=? and event_id like ? and status='PENDING'",
-                Long.class, warehouseId, DlAnalysisReplayFeeder.LIVE_EVENT_PREFIX + "%");
+                Long.class, warehouseId, LiveEventIds.PREFIX + "%");
         return new State(input != null, running, pending == null ? 0 : pending);
     }
 

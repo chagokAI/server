@@ -1,5 +1,6 @@
 package com.skala.chagok.dlanalysis;
 
+import com.skala.chagok.domain.event.LiveEventIds;
 import com.skala.chagok.domain.event.entity.ItemEvent;
 import com.skala.chagok.domain.event.entity.ItemEventId;
 import com.skala.chagok.domain.warehouse.entity.Warehouse;
@@ -20,7 +21,6 @@ import org.springframework.stereotype.Component;
 @KafkaIntegrationEnabled
 @ConditionalOnProperty(name = "chagok.live.feeder.enabled", havingValue = "true")
 public class DlAnalysisReplayFeeder {
-    public static final String LIVE_EVENT_PREFIX = "live-";
     private final DlAnalysisReplaySource source;
     private final DlAnalysisResultProducer producer;
     private final DlAnalysisItemEventRepository events;
@@ -71,7 +71,7 @@ public class DlAnalysisReplayFeeder {
     private Object lock(UUID warehouseId) { return locks.computeIfAbsent(warehouseId, id -> new Object()); }
 
     private void replay(UUID warehouseId) {
-        String id = LIVE_EVENT_PREFIX + UUID.randomUUID();
+        String id = LiveEventIds.PREFIX + UUID.randomUUID();
         try {
             var next = source.next(cursors.get(warehouseId), warehouseId);
             if (next.isEmpty()) return;
