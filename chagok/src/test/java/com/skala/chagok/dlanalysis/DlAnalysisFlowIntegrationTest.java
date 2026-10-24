@@ -66,7 +66,8 @@ import tools.jackson.databind.json.JsonMapper;
 @AutoConfigureMockMvc
 @EmbeddedKafka(
         brokerProperties = {"auto.create.topics.enable=false", "group.initial.rebalance.delay.ms=0",
-                "log.segment.bytes=10485760", "log.index.size.max.bytes=1048576", "offsets.topic.num.partitions=3"},
+                "log.segment.bytes=10485760", "log.index.size.max.bytes=1048576", "offsets.topic.num.partitions=3",
+                "transaction.state.log.replication.factor=1", "transaction.state.log.min.isr=1"},
         bootstrapServersProperty = "spring.kafka.bootstrap-servers")
 class DlAnalysisFlowIntegrationTest {
 
@@ -408,6 +409,33 @@ class DlAnalysisFlowIntegrationTest {
         assertThat(awaitFinished(eventId).get("status")).isEqualTo("SUCCEEDED");
         // 행이 끝내 보이지 않은 결과도 버리지 않는다. 늦게 저장된 행이 있으면 사람이 다시 넣을 수 있게 남긴다
         assertThat(awaitDeadLetter(orphanId).value()).contains("\"eventId\":\"" + orphanId + "\"");
+    }
+
+    @Test
+    void abortedWorkerTransactionIsNeverAppliedButCommittedOneIs() throws Exception {
+        // Worker가 결과를 보낸 뒤 트랜잭션을 끝내지 못하고 죽은 상황이다. 중단된 결과는 반영되면 안 되고,
+        // Worker가 같은 요청을 다시 처리해 확정한 결과만 한 번 반영되어야 한다
+        String eventId = accept();
+        Map<String, Object> props = KafkaTestUtils.producerProps(broker);
+        props.put(org.apache.kafka.clients.producer.ProducerConfig.TRANSACTIONAL_ID_CONFIG, "test-worker-" + UUID.randomUUID());
+        try (Producer<String, String> worker = new KafkaProducer<>(props, new StringSerializer(), new StringSerializer())) {
+            worker.initTransactions();
+            worker.beginTransaction();
+            worker.send(new ProducerRecord<>(resultTopic.topic(), eventId, known(eventId, BARCODE))).get();
+            worker.abortTransaction();
+
+            String later = accept();
+            reply(later, known(later, BARCODE));
+            assertThat(awaitFinished(later).get("status")).isEqualTo("SUCCEEDED");
+            assertThat(statusOf(eventId)).isEqualTo("PENDING");
+            assertThat(stock(boxSpecId)).isEqualTo(99);
+
+            worker.beginTransaction();
+            worker.send(new ProducerRecord<>(resultTopic.topic(), eventId, known(eventId, BARCODE))).get();
+            worker.commitTransaction();
+        }
+        assertThat(awaitFinished(eventId).get("status")).isEqualTo("SUCCEEDED");
+        assertThat(stock(boxSpecId)).isEqualTo(98);
     }
 
     @Test
