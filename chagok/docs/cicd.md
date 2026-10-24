@@ -46,6 +46,8 @@ backend 배포는 client의 서버 잠금 파일을 함께 사용하므로 서�
 
 운영 override는 `DDL_AUTO=validate`를 지정한다. 이 배포 스크립트는 Hibernate의 자동 스키마 변경을 수행하지 않는다.
 새 코드가 현재 스키마와 호환되지 않으면 시작이 실패하고 이전 이미지로 복원한다.
+복원과 Server Rollback은 되돌릴 이미지가 원래 실행되던 `DDL_AUTO` 값(`previous-ddl-auto`)을 그대로 사용한다.
+validate 이전부터 `update`로 실행되던 이미지도 검증 실패 없이 되돌릴 수 있다.
 스키마 변경이 필요한 릴리스는 별도 마이그레이션을 검토한 뒤 배포한다.
 이미지 롤백은 DB 데이터를 이전 시점으로 되돌리지 않는다.
 
@@ -61,4 +63,4 @@ backend 배포는 client의 서버 잠금 파일을 함께 사용하므로 서�
 세션이 메모리에 저장된 구성에서는 backend 교체 후 다시 로그인해야 할 수 있다.
 
 GitHub Actions에서 Server Deploy / Server Rollback의 Run workflow를 main으로 실행할 수 있다.
-`history.tsv`, `current-image`, `previous-image`와 로컬 롤백 이미지는 서버에 보존한다.
+`history.tsv`, `current-image`, `previous-image`, `previous-ddl-auto`와 로컬 롤백 이미지는 서버에 보존한다.

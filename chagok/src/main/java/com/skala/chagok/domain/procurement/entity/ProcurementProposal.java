@@ -44,6 +44,8 @@ public class ProcurementProposal {
     @JoinColumn(name = "warehouse_id")
     private Warehouse warehouse;
 
+    // String은 기본이 VARCHAR라 운영 스키마 검증(validate)에서 char(7) 컬럼과 어긋난다. CHAR로 맞춘다.
+    @JdbcTypeCode(SqlTypes.CHAR)
     @Column(name = "target_month", length = 7, columnDefinition = "char(7)")
     private String targetMonth;
 

@@ -58,11 +58,17 @@ container=$("${active_compose[@]}" ps --status running -q backend)
 old_image_id=$(docker inspect --format '{{.Image}}' "$container")
 [[ "$old_image_id" =~ ^sha256:[a-f0-9]{64}$ ]] || die 'Cannot determine current backend image'
 rollback_image="chagok-server-rollback:${old_image_id#sha256:}"
+# Restored images keep the schema mode their container actually ran with. The app defaults to update.
+old_ddl_auto=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container" | sed -n 's/^DDL_AUTO=//p')
+old_ddl_auto=${old_ddl_auto:-update}
+# New releases must match the current schema; Hibernate does not change it.
+next_ddl_auto=validate
 
 if [ "$mode" = rollback ]; then
   [ -f "$DEPLOY_STATE_DIR/previous-image" ] || die 'No previous successful deployment is recorded'
   image=$(cat "$DEPLOY_STATE_DIR/previous-image")
   [[ "$image" =~ ^chagok-server-rollback:[a-f0-9]{64}$ ]] || die 'Invalid recorded rollback image'
+  if [ -f "$DEPLOY_STATE_DIR/previous-ddl-auto" ]; then next_ddl_auto=$(cat "$DEPLOY_STATE_DIR/previous-ddl-auto"); fi
 else
   prefix="$image_repository@sha256:"
   [[ "$image" = "$prefix"* ]] || die "Image must belong to $image_repository and use a digest"
@@ -71,6 +77,7 @@ else
   # Pull before changing the running service or deployment state.
   docker pull "$image"
 fi
+[[ "$old_ddl_auto" =~ ^[a-z-]+$ && "$next_ddl_auto" =~ ^[a-z-]+$ ]] || die 'Invalid DDL_AUTO value'
 next_image_id=$(docker image inspect --format '{{.Id}}' "$image")
 
 check_http() {
@@ -120,11 +127,13 @@ echo "Database backup saved: $backup"
 docker image tag "$old_image_id" "$rollback_image"
 old_current_record=''
 old_previous_record=''
+old_previous_ddl_record=''
 if [ -f "$DEPLOY_STATE_DIR/current-image" ]; then old_current_record=$(cat "$DEPLOY_STATE_DIR/current-image"); fi
 if [ -f "$DEPLOY_STATE_DIR/previous-image" ]; then old_previous_record=$(cat "$DEPLOY_STATE_DIR/previous-image"); fi
+if [ -f "$DEPLOY_STATE_DIR/previous-ddl-auto" ]; then old_previous_ddl_record=$(cat "$DEPLOY_STATE_DIR/previous-ddl-auto"); fi
 release_compose=("${compose[@]}" -f "$override")
 write_image() {
-  printf 'services:\n  backend:\n    image: "%s"\n    environment:\n      DDL_AUTO: validate\n' "$1" > "$override.tmp"
+  printf 'services:\n  backend:\n    image: "%s"\n    environment:\n      DDL_AUTO: %s\n' "$1" "$2" > "$override.tmp"
   mv -- "$override.tmp" "$override"
 }
 start_backend() {
@@ -149,7 +158,8 @@ restore_on_failure() {
     echo 'Deployment failed; restoring the exact previous backend image.' >&2
     restore_record current-image "$old_current_record"
     restore_record previous-image "$old_previous_record"
-    if write_image "$rollback_image" && start_backend && smoke; then
+    restore_record previous-ddl-auto "$old_previous_ddl_record"
+    if write_image "$rollback_image" "$old_ddl_auto" && start_backend && smoke; then
       record restored "$rollback_image"
       echo 'Previous backend restored. This deployment remains failed.' >&2
     else
@@ -164,12 +174,14 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-write_image "$image"
+write_image "$image" "$next_ddl_auto"
 start_backend
 smoke || die 'Backend or API smoke checks failed'
 printf '%s\n' "$rollback_image" > "$DEPLOY_STATE_DIR/previous-image.tmp"
+printf '%s\n' "$old_ddl_auto" > "$DEPLOY_STATE_DIR/previous-ddl-auto.tmp"
 printf '%s\n' "$image" > "$DEPLOY_STATE_DIR/current-image.tmp"
 mv -- "$DEPLOY_STATE_DIR/previous-image.tmp" "$DEPLOY_STATE_DIR/previous-image"
+mv -- "$DEPLOY_STATE_DIR/previous-ddl-auto.tmp" "$DEPLOY_STATE_DIR/previous-ddl-auto"
 mv -- "$DEPLOY_STATE_DIR/current-image.tmp" "$DEPLOY_STATE_DIR/current-image"
 record "$mode" "$image"
 trap - EXIT HUP INT TERM
