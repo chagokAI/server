@@ -52,7 +52,8 @@ public class LiveResetService {
         });
         boxes.flush();
         int movements = jdbc.update("delete from inventory_movement where warehouse_id=:warehouseId and type='CONSUMPTION' and memo like :memo", params);
-        int items = jdbc.update("delete from item_event where warehouse_id=:warehouseId and event_id like :prefix", params);
+        // 결과를 기다리는 접수 건은 남긴다. 지우면 늦은 결과가 고아 재시도로 소비 파티션을 멈춘다. 확정 후 차감은 다음 초기화가 되돌린다.
+        int items = jdbc.update("delete from item_event where warehouse_id=:warehouseId and event_id like :prefix and status<>'PENDING'", params);
         events.publishEvent(new StockChangedEvent(warehouseId));
         log.info("라이브 변경분 초기화: warehouseId={}, movements={}, events={}", warehouseId, movements, items);
     }

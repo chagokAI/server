@@ -502,6 +502,24 @@ class DlAnalysisFlowIntegrationTest {
         assertThat(jdbc.queryForObject("select count(*) from item_event where warehouse_id=? and event_id like 'live-%'", Integer.class, warehouseId)).isZero();
     }
 
+    // 초기화 시점에 결과를 기다리는 접수 건을 지우면 늦은 결과가 고아가 되어 소비 파티션이 재시도로 멈춘다.
+    // 접수 건은 남겨 정상 확정시키고, 그 차감은 다음 초기화가 되돌린다.
+    @Test void resetKeepsInFlightLiveEventsSoTheirLateResultsSettleAndAreUndoneNextTime() throws Exception {
+        String live = "live-" + UUID.randomUUID();
+        jdbc.update("insert into item_event(event_id,occurred_at,warehouse_id,status) values (?,now(),?,'PENDING')", live, warehouseId);
+
+        liveReset.reset(warehouseId);
+        assertThat(statusOf(live)).isEqualTo("PENDING");
+
+        resultListener.onResult(knownResult(live));
+        assertThat(statusOf(live)).isEqualTo("SUCCEEDED");
+        assertThat(stock(boxSpecId)).isEqualTo(99);
+
+        liveReset.reset(warehouseId);
+        assertThat(stock(boxSpecId)).isEqualTo(100);
+        assertThat(jdbc.queryForObject("select count(*) from item_event where warehouse_id=? and event_id like 'live-%'", Integer.class, warehouseId)).isZero();
+    }
+
     @Test
     void choosesBestInStockBoxWithoutChangingProductMaster() throws Exception {
         jdbc.update("update box_spec set on_hand_qty=0 where id=?", boxSpecId);
