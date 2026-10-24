@@ -1,7 +1,8 @@
 spring:
   config:
     # Compose와 Spring이 프로젝트 루트의 동일한 로컬 환경 설정을 사용한다.
-    import: "optional:file:.env[.properties]"
+    # 테스트는 CHAGOK_ENV_FILE을 없는 경로로 지정해 개발자의 .env(클라우드 DB·브로커·토큰)를 읽지 않는다.
+    import: "optional:file:${CHAGOK_ENV_FILE:.env}[.properties]"
   application:
     name: chagok
 
@@ -38,7 +39,7 @@ spring:
 
   sql:
     init:
-      mode: always
+      mode: ${SQL_INIT_MODE:always}
       schema-locations: classpath:db/init/extensions.sql
       encoding: UTF-8
 
@@ -70,6 +71,14 @@ spring:
 
 # DL 분석 요청·결과 토픽. 메시지 형식은 docs/dl-kafka-contract.md, 복제 계수 1은 로컬 단일 브로커 기준이다
 chagok:
+  live:
+    allow-remote-database: ${LIVE_ALLOW_REMOTE_DATABASE:false}
+    feeder:
+      enabled: ${LIVE_FEEDER_ENABLED:false}
+      interval-ms: ${LIVE_FEEDER_INTERVAL_MS:167}
+    reset:
+      enabled: ${LIVE_RESET_ENABLED:false}
+      cron: "${LIVE_RESET_CRON:0 */30 * * * *}"
   dl:
     image-root: ${DL_IMAGE_ROOT:./data/captures}
   kafka:

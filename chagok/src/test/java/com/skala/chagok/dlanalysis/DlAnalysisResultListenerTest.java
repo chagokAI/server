@@ -26,7 +26,8 @@ class DlAnalysisResultListenerTest {
     private final DlAnalysisItemEventRepository itemEvents = mock(DlAnalysisItemEventRepository.class);
     private final DlAnalysisResultRecorder recorder = mock(DlAnalysisResultRecorder.class);
     private final DlMeasurementLog measurementLog = mock(DlMeasurementLog.class);
-    private final DlAnalysisResultListener listener = new DlAnalysisResultListener(itemEvents, recorder, measurementLog);
+    private final DlAnalysisResultListener listener = new DlAnalysisResultListener(itemEvents, recorder, measurementLog,
+            mock(org.springframework.context.ApplicationEventPublisher.class));
 
     @Test
     void recordsIdentifiedProductForKnownItemUsingTheRowsWarehouse() {

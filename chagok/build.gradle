@@ -46,10 +46,38 @@ tasks.named('test') {
 }
 
 tasks.withType(Test).configureEach {
-    // 테스트 도중 정기 작업이 개발 DB의 센터를 변경하지 않게 한다. 실행 로직은 명시적으로 검증한다.
+    // .env가 클라우드를 가리켜도 테스트 JVM은 명시한 loopback 대상만 사용한다.
+    // 검사 전에 fixture/스케줄러가 기동하지 않도록 JVM 실행 직전 차단한다.
+    doFirst {
+        String target = System.getenv('TEST_DB_URL') ?: System.getenv('DB_URL')
+        if (!target && name == 'offlineTest') target = 'jdbc:postgresql://127.0.0.1:1/chagok_offline'
+        boolean valid = false
+        try {
+            if (target?.startsWith('jdbc:postgresql://')) {
+                def uri = new URI(target.substring(5))
+                valid = ['localhost', '127.0.0.1', '::1', '[::1]'].contains(uri.host?.toLowerCase(Locale.ROOT)) &&
+                        uri.rawQuery == null && uri.rawFragment == null && uri.userInfo == null &&
+                        uri.port != 0 && uri.port <= 65535
+            }
+        } catch (Exception ignored) { }
+        if (!valid) throw new GradleException('Tests require an explicit loopback TEST_DB_URL or DB_URL; project .env is not a test target')
+        systemProperty 'spring.datasource.url', target
+        for (String key : ['USERNAME', 'PASSWORD']) {
+            String value = System.getenv('TEST_DB_' + key) ?: System.getenv('DB_' + key)
+            if (value != null) systemProperty 'spring.datasource.' + key.toLowerCase(Locale.ROOT), value
+        }
+        systemProperty 'spring.jpa.hibernate.ddl-auto', System.getenv('DDL_AUTO') ?: 'update'
+    }
+    // DB 주소만 막으면 .env의 브로커·계정·토큰이 그대로 들어온다. 테스트 JVM은 .env 가져오기 자체를 끈다.
+    systemProperty 'CHAGOK_ENV_FILE', layout.buildDirectory.file('test-env/no-project-env').get().asFile.absolutePath
     systemProperty 'chagok.jobs.scheduling-enabled', 'false'
     systemProperty 'chagok.jobs.worker-enabled', 'false'
     systemProperty 'chagok.auth.enabled', 'false'
+    systemProperty 'chagok.live.allow-remote-database', 'false'
+    systemProperty 'chagok.live.feeder.enabled', 'false'
+    systemProperty 'chagok.live.reset.enabled', 'false'
+    systemProperty 'chagok.bootstrap.enabled', 'false'
+    systemProperty 'spring.sql.init.mode', 'always'
 }
 
 // PostgreSQL을 설치하지 않은 환경에서도 API 계약·계산·매핑 검증을 실행한다.
@@ -68,5 +96,7 @@ tasks.register('offlineTest', Test) {
         // 이 두 흐름도 실제 PostgreSQL에 fixture를 넣는 통합 테스트다. test에서는 계속 실행한다.
         excludeTestsMatching 'com.skala.chagok.workflow.NotificationReadFlowTest'
         excludeTestsMatching 'com.skala.chagok.workflow.RefreshPolicyFlowTest'
+        // 라이브 재고 스트림·입력기·초기화도 PostgreSQL에 fixture를 넣어 확인한다.
+        excludeTestsMatching 'com.skala.chagok.live.*IntegrationTest'
     }
 }

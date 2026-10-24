@@ -25,6 +25,7 @@ public class InventoryCommandService {
     private final PurchaseOrderItemRepository orderItems;
     private final ChagokProperties properties;
     private final com.skala.chagok.domain.notification.service.DomainNotificationService notices;
+    private final org.springframework.context.ApplicationEventPublisher events;
 
     @Transactional(readOnly = true)
     public com.skala.chagok.global.response.PageResponse<InventoryMovementResponse> history(UUID warehouseId, UUID boxId, int page, int size) {
@@ -98,6 +99,7 @@ public class InventoryCommandService {
         box.changeStock(after, now);
         notices.inventory(box, wasShort, !Boolean.FALSE.equals(box.getAlertEnabled()));
         boxes.flush();
+        events.publishEvent(new StockChangedEvent(warehouseId));
         return InventoryMovementResponse.from(movement);
     }
 

@@ -179,7 +179,10 @@ public class GlobalExceptionHandler {
             requestId = "req-" + UUID.randomUUID();
         }
         String resolvedMessage = message != null ? message : code.getDefaultMessage();
-        return ResponseEntity.status(status)
-                .body(ErrorResponse.of(code, resolvedMessage, fieldErrors, requestId, details));
+        var response = ResponseEntity.status(status);
+        // 잠시 뒤 다시 시도하면 되는 거절은 언제 다시 올지 표준 헤더로도 알려 준다.
+        if (details != null && details.get("retryAfterSeconds") instanceof Number seconds)
+            response.header(org.springframework.http.HttpHeaders.RETRY_AFTER, String.valueOf(seconds.longValue()));
+        return response.body(ErrorResponse.of(code, resolvedMessage, fieldErrors, requestId, details));
     }
 }

@@ -12,7 +12,7 @@ public class JobSchedulingConfig {
 
     @Bean public ThreadPoolTaskScheduler taskScheduler() {
         var scheduler = new ThreadPoolTaskScheduler();
-        scheduler.setPoolSize(2);
+        scheduler.setPoolSize(4);
         scheduler.setThreadNamePrefix("chagok-job-");
         return scheduler;
     }

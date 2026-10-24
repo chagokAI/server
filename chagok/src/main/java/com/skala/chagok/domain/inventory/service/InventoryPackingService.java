@@ -27,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service @RequiredArgsConstructor
 @Transactional(propagation = Propagation.MANDATORY)
 public class InventoryPackingService {
+    public static final String MOVEMENT_MEMO_PREFIX = "DL packing event=";
     private final ProductMatchingService matching;
     private final BoxSpecRepository boxes;
     private final InventoryMovementRepository movements;
@@ -55,7 +56,7 @@ public class InventoryPackingService {
         movements.saveAndFlush(InventoryMovement.builder().warehouseId(warehouseId).boxSpecId(box.getId())
                 .requestId(requestId).type("CONSUMPTION").deltaQty(-1L).beforeQty(before).afterQty(before - 1)
                 .occurredOn(now.atZone(properties.timezone()).toLocalDate()).createdAt(now)
-                .memo("DL packing event=" + eventId).build());
+                .memo(MOVEMENT_MEMO_PREFIX + eventId).build());
         notices.inventory(box, wasShort, !Boolean.FALSE.equals(box.getAlertEnabled()));
         return new Result(box, best.fillRatePct());
     }
