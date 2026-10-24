@@ -61,6 +61,39 @@ class DlAnalysisReplayFeederTest {
         assertThat(spanMillis).as("eleven intervals including 60ms broker ACK per item").isBetween(1600., 2200.);
     }
 
+    // 느린 브로커 확인 중에도 상태 조회와 다른 센터의 시작은 기다리지 않는다. 같은 센터의 정지는 진행 중인 발행 뒤에 끝나야
+    // 정지 응답 이후 새 발행이 없다는 계약이 유지된다.
+    @Test void aSlowBrokerAckBlocksOnlyThePauseOfTheSameWarehouse() throws Exception {
+        var source = mock(DlAnalysisReplaySource.class);
+        var producer = mock(DlAnalysisResultProducer.class);
+        var events = mock(DlAnalysisItemEventRepository.class);
+        var sample = new DlAnalysisReplaySource.Sample(
+                new DlAnalysisReplaySource.Cursor(Instant.now(), (short) 1, "original"), UUID.randomUUID(),
+                "known", "sample-code", new DlAnalysisResult.Size("measured", 20., 10., 5., 1000.), 12L);
+        var other = UUID.randomUUID();
+        when(source.next(any(), eq(sample.warehouseId()))).thenReturn(Optional.of(sample));
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var ack = new java.util.concurrent.CountDownLatch(1);
+        doAnswer(call -> { entered.countDown(); assertThat(ack.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue(); return null; })
+                .when(producer).publish(any());
+        var feeder = new DlAnalysisReplayFeeder(source, producer, events, mock(EntityManager.class), "jdbc:postgresql://localhost/test", false);
+        feeder.setRunning(sample.warehouseId(), true, "operator");
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(3);
+        try {
+            pool.submit(feeder::tick);
+            assertThat(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(pool.submit(() -> feeder.isRunning(sample.warehouseId())).get(200, java.util.concurrent.TimeUnit.MILLISECONDS)).isTrue();
+            pool.submit(() -> feeder.setRunning(other, true, "other")).get(200, java.util.concurrent.TimeUnit.MILLISECONDS);
+            var pausing = pool.submit(() -> feeder.setRunning(sample.warehouseId(), false, "operator"));
+            assertThatThrownBy(() -> pausing.get(150, java.util.concurrent.TimeUnit.MILLISECONDS))
+                    .isInstanceOf(java.util.concurrent.TimeoutException.class);
+            ack.countDown();
+            pausing.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            feeder.tick();
+            verify(producer, times(1)).publish(any());
+        } finally { ack.countDown(); pool.shutdownNow(); }
+    }
+
     @org.springframework.context.annotation.Configuration(proxyBeanMethods = false)
     @org.springframework.scheduling.annotation.EnableScheduling
     static class Scheduling {}
