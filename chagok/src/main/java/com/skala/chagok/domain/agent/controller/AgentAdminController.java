@@ -1,6 +1,7 @@
 package com.skala.chagok.domain.agent.controller;
 
 import com.skala.chagok.domain.agent.client.AgentClient;
+import com.skala.chagok.global.auth.CurrentUserProvider;
 import com.skala.chagok.global.error.BusinessException;
 import com.skala.chagok.global.error.ErrorCode;
 import com.skala.chagok.global.response.*;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.*;
 public class AgentAdminController {
     private final AgentClient agent;
     private final ApiResponses responses;
+    private final CurrentUserProvider users;
 
     public record GuideUpdateRequest(@NotNull Map<String, Object> changes) {}
 
@@ -85,7 +87,7 @@ public class AgentAdminController {
     public ApiResponse<Map<String, Object>> updateGuide(@PathVariable UUID warehouseId,
                                                        @Valid @RequestBody GuideUpdateRequest request) {
         return responses.of(call(() -> agent.patch("/internal/agent/centers/" + warehouseId + "/guide",
-                Map.of("changes", request.changes()))));
+                Map.of("changes", request.changes(), "actor", actor()))));
     }
 
     /** 규정 문서 원문 틀(고치기용). 전 센터 공통 문서이고 {규칙 키} 자리는 센터마다 기준값으로 채워진다 */
@@ -98,7 +100,14 @@ public class AgentAdminController {
     @PutMapping("/policies/{docId}")
     public ApiResponse<Map<String, Object>> updatePolicy(@PathVariable @Pattern(regexp = "POL-\\d+") String docId,
                                                         @Valid @RequestBody PolicyUpdateRequest request) {
-        return responses.of(call(() -> agent.put("/internal/agent/policies/" + docId, Map.of("markdown", request.markdown()))));
+        return responses.of(call(() -> agent.put("/internal/agent/policies/" + docId,
+                Map.of("markdown", request.markdown(), "actor", actor()))));
+    }
+
+    /** 변경 이력에 남길 사람: 이름(사번) */
+    private String actor() {
+        var user = users.getCurrentUser();
+        return user.getName() + "(" + user.getEmployeeNo() + ")";
     }
 
     private Map<String, Object> call(Supplier<Map<String, Object>> request) {
