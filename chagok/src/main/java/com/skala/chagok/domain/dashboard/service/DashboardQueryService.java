@@ -60,7 +60,8 @@ public class DashboardQueryService {
         }
         Map<String, long[]> stocks = new TreeMap<>();
         specs.forEach(box -> {
-            long[] values = stocks.computeIfAbsent(sizeClass(box.getSizeClass()), key -> new long[4]);
+            long[] values = stocks.computeIfAbsent(size(box.getSizeClass(), box.getInnerWidthMm(), box.getInnerDepthMm(),
+                    box.getInnerHeightMm()), key -> new long[4]);
             values[0] += qty(box.getOnHandQty()); values[1] += qty(safety.get(box.getId()));
             if (box.getOnHandQty() == null) values[2]++;
             if (!safety.containsKey(box.getId())) values[3]++;
@@ -136,20 +137,24 @@ public class DashboardQueryService {
                                                                  BigDecimal days, Map<String, long[]> stockBySize,
                                                                  Map<String, Long> demandBySize) {
         Map<String, Long> inbound = bySize("""
-                select b.size_class as size, coalesce(sum(i.qty), 0) as qty from purchase_order po
+                select b.size_class as size, b.inner_width_mm as w, b.inner_depth_mm as d, b.inner_height_mm as h,
+                    coalesce(sum(i.qty), 0) as qty from purchase_order po
                 join purchase_order_item i on i.purchase_order_id = po.id join box_spec b on b.id = i.box_spec_id
                 left join procurement_proposal pp on pp.id = po.proposal_id
                 where po.warehouse_id = :wh and po.status in ('APPROVED', 'IN_TRANSIT')
                     and (pp.target_month is null or trim(pp.target_month) <> :month)
-                group by b.size_class
+                group by b.size_class, b.inner_width_mm, b.inner_depth_mm, b.inner_height_mm
                 """, Map.of("wh", warehouseId, "month", month.toString()));
         Map<String, Long> received = proposal.id() == null ? Map.of() : bySize("""
-                select b.size_class as size, coalesce(sum(i.qty), 0) as qty from purchase_order po
+                select b.size_class as size, b.inner_width_mm as w, b.inner_depth_mm as d, b.inner_height_mm as h,
+                    coalesce(sum(i.qty), 0) as qty from purchase_order po
                 join purchase_order_item i on i.purchase_order_id = po.id join box_spec b on b.id = i.box_spec_id
-                where po.proposal_id = :proposal and po.status = 'RECEIVED' group by b.size_class
+                where po.proposal_id = :proposal and po.status = 'RECEIVED'
+                group by b.size_class, b.inner_width_mm, b.inner_depth_mm, b.inner_height_mm
                 """, Map.of("proposal", proposal.id()));
         Map<String, Long> ordered = new HashMap<>();
-        proposal.items().forEach(item -> ordered.merge(sizeClass(item.boxSpec().sizeClass()),
+        proposal.items().forEach(item -> ordered.merge(size(item.boxSpec().sizeClass(), item.boxSpec().innerWidthMm(),
+                        item.boxSpec().innerDepthMm(), item.boxSpec().innerHeightMm()),
                 (long) (item.proposedQty() == null ? 0 : item.proposedQty()), Long::sum));
         Set<String> keys = new TreeSet<>(sizeOrder());
         keys.addAll(stockBySize.keySet()); keys.addAll(demandBySize.keySet()); keys.addAll(ordered.keySet()); keys.addAll(inbound.keySet());
@@ -167,8 +172,9 @@ public class DashboardQueryService {
     private Map<String, Long> bySize(String sql, Map<String, ?> params) {
         Map<String, Long> out = new HashMap<>();
         jdbc.query(sql, params, rs -> {
-            String size = rs.getString("size");
-            out.merge(size == null || size.isBlank() ? "OTHER" : size.trim(), rs.getLong("qty"), Long::sum);
+            String stored = rs.getString("size");
+            out.merge(size(stored == null || stored.isBlank() ? null : stored.trim().charAt(0), (Integer) rs.getObject("w"),
+                    (Integer) rs.getObject("d"), (Integer) rs.getObject("h")), rs.getLong("qty"), Long::sum);
         });
         return out;
     }
@@ -177,6 +183,12 @@ public class DashboardQueryService {
 
     private static long qty(Integer value) { return value == null ? 0 : value; }
     private static String sizeClass(Character value) { return value == null ? "OTHER" : value.toString(); }
+
+    /** 크기는 예측(사용 계획)과 같은 치수 기준으로 나눈다. 저장된 크기 값은 치수가 없을 때만 쓴다 */
+    private String size(Character stored, Integer width, Integer depth, Integer height) {
+        if (width != null && depth != null && height != null) return String.valueOf(sizes.classify(width, depth, height));
+        return sizeClass(stored);
+    }
     private static Comparator<String> sizeOrder() {
         return Comparator.comparingInt(value -> switch (value) { case "S" -> 0; case "M" -> 1; case "L" -> 2; default -> 3; });
     }
