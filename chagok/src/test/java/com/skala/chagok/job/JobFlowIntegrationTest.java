@@ -50,6 +50,7 @@ class JobFlowIntegrationTest {
             jdbc.update("delete from cost_forecast where warehouse_id = ?", id);
             jdbc.update("delete from analysis_job where warehouse_id = ?", id);
             jdbc.update("delete from item_event where warehouse_id = ?", id);
+            jdbc.update("delete from item_event_daily where warehouse_id = ?", id);
             jdbc.update("delete from product where warehouse_id = ?", id);
             jdbc.update("delete from box_spec where warehouse_id = ?", id);
             jdbc.update("delete from warehouse where id = ?", id);
@@ -192,6 +193,31 @@ class JobFlowIntegrationTest {
         assertThat(result.estimatedBoxCount()).isEqualTo(2);
         assertThat(jdbc.queryForObject("select count(*) from item_event where warehouse_id = ? and box_spec_id = ?",
                 Long.class, warehouseId, alternative)).isEqualTo(2);
+    }
+
+    @Test void archivedDemandCountsQuantitiesKnownWaitingAndLiveWithoutRetainedRawDuplicates() {
+        var day = LocalDate.now(ZoneId.of("Asia/Seoul")).minusDays(5);
+        var from = day.atStartOfDay(ZoneId.of("Asia/Seoul")).toInstant();
+        UUID alternative = box(warehouseId, "S-2", true);
+        UUID item = product(warehouseId, "P-ARCHIVE", boxId, true);
+        jdbc.update("""
+                insert into item_event_daily (warehouse_id, day, product_id, box_spec_id, status, source, shipments)
+                values (?, ?, ?, ?, 'SUCCEEDED', 'hist', 300)
+                """, warehouseId, day, item, alternative);
+        jdbc.update("""
+                insert into item_event_daily (warehouse_id, day, product_id, status, failure_reason, source, shipments)
+                values (?, ?, ?, 'WAITING', 'NO_AVAILABLE_BOX', 'hist', 20)
+                """, warehouseId, day, item);
+        event(warehouseId, item, alternative, "SUCCEEDED", from.plusSeconds(1), "known");
+        // 다른 출처의 라이브 원본은 hist 집계 때문에 사라지면 안 된다.
+        jdbc.update("""
+                insert into item_event (event_id, occurred_at, warehouse_id, product_id, box_spec_id, status)
+                values (?, ?, ?, ?, ?, 'SUCCEEDED')
+                """, "live-" + UUID.randomUUID(), Timestamp.from(from.plusSeconds(2)), warehouseId, item, alternative);
+        var result = demand.demand(warehouseId, from, from.plusSeconds(86400));
+        assertThat(result.counts()).containsOnly(Map.entry(boxId, 321L));
+        assertThat(result.estimatedBoxCount()).isEqualTo(321);
+        assertThat(result.liveObservationCount()).isEqualTo(1);
     }
 
     @Test void demandExcludesFailedOutOfPeriodInactiveAndCrossWarehouseEvents() {

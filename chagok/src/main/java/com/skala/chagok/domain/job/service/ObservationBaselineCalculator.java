@@ -17,6 +17,11 @@ public class ObservationBaselineCalculator {
                        int safetyQty, String safetySource) {}
 
     public Line calculate(BoxSpec spec, long observations, YearMonth targetMonth) {
+        return calculate(spec, observations, targetMonth, BigDecimal.valueOf(properties.lookbackDays()));
+    }
+
+    public Line calculate(BoxSpec spec, long observations, YearMonth targetMonth, BigDecimal observedDays) {
+        if (observedDays.signum() <= 0) throw new IllegalArgumentException("관측 기간은 0일보다 커야 합니다.");
         if (spec.getOnHandQty() == null || spec.getOnHandQty() < 0
                 || (spec.getSafetyQty() != null && spec.getSafetyQty() < 0)
                 || (spec.getSafetyQty() == null && (spec.getSafetyDays() == null || spec.getSafetyDays() < 0))
@@ -24,10 +29,10 @@ public class ObservationBaselineCalculator {
             throw new JobCalculationException("INCOMPLETE_BOX_DATA", "현재 재고·안전 재고·단가를 확인하세요. 규격=" + spec.getCode());
         try {
             int forecast = BigDecimal.valueOf(observations).multiply(BigDecimal.valueOf(targetMonth.lengthOfMonth()))
-                    .divide(BigDecimal.valueOf(properties.lookbackDays()), 0, RoundingMode.CEILING).intValueExact();
+                    .divide(observedDays, 0, RoundingMode.CEILING).intValueExact();
             int safety = spec.getSafetyQty() != null ? spec.getSafetyQty()
                     : BigDecimal.valueOf(observations).multiply(BigDecimal.valueOf(spec.getSafetyDays()))
-                            .divide(BigDecimal.valueOf(properties.lookbackDays()), 0, RoundingMode.CEILING).intValueExact();
+                            .divide(observedDays, 0, RoundingMode.CEILING).intValueExact();
             long shortage = Math.max(0L, (long) forecast + safety - spec.getOnHandQty());
             int proposed = Math.toIntExact(((shortage + properties.orderUnit() - 1) / properties.orderUnit()) * properties.orderUnit());
             return new Line(spec, BoxSnapshot.from(spec), forecast, proposed, spec.getUnitPriceKrw(),
