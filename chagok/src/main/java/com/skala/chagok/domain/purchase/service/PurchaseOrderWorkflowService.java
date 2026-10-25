@@ -33,6 +33,7 @@ public class PurchaseOrderWorkflowService {
     private final CurrentUserProvider users;
     private final ChagokProperties properties;
     private final com.skala.chagok.domain.notification.service.DomainNotificationService notices;
+    private final com.skala.chagok.domain.product.service.ProductMatchService matchRefresh;
 
     public record DraftResult(boolean created, DraftGroupResponse data) {}
 
@@ -41,36 +42,56 @@ public class PurchaseOrderWorkflowService {
         var proposal = proposals.findByIdAndWarehouseId(request.proposalId(), warehouseId)
                 .orElseThrow(() -> BusinessException.notFound("발주 제안서"));
         var existing = orders.findByProposalIdOrderByPoNoAsc(proposal.getId());
-        if (!existing.isEmpty()) return new DraftResult(false, group(proposal.getId(), existing));
         checkDate(request.requestedDeliveryDate());
         var user = user(warehouseId);
         agentItems.materialize(proposal);
+        // 이전 버전에서 만든 초안에도 새로 지원하는 맞춤 품목만 추가한다. 기존 발주 품목은 중복하지 않는다.
+        Set<UUID> ordered = existing.isEmpty() ? Set.of() : items.findByPurchaseOrderIdIn(
+                existing.stream().map(PurchaseOrder::getId).toList()).stream()
+                .map(line -> line.getBoxSpec().getId()).collect(Collectors.toSet());
         var lines = proposalItems.findByProposalId(proposal.getId());
         if (lines.stream().anyMatch(line -> line.getProposedQty() == null || line.getProposedQty() < 0))
             throw new BusinessException(ErrorCode.INVALID_STATE, "제안 수량이 누락되었습니다.");
         var grouped = new LinkedHashMap<UUID, List<com.skala.chagok.domain.procurement.entity.ProcurementProposalItem>>();
         for (var line : lines) {
-            if (line.getProposedQty() == 0) continue;
+            if (line.getProposedQty() == 0 || ordered.contains(line.getBoxSpec().getId())) continue;
             var box = line.getBoxSpec();
-            if (!warehouseId.equals(box.getWarehouse().getId()) || !Boolean.TRUE.equals(box.getIsActive())
+            if (!warehouseId.equals(box.getWarehouse().getId())
+                    || (!Boolean.TRUE.equals(box.getIsActive()) && !agentItems.pendingCustom(proposal, box))
                     || box.getSupplier() == null || line.getUnitPriceKrw() == null || line.getUnitPriceKrw() < 0)
                 throw new BusinessException(ErrorCode.INVALID_STATE, "활성 규격·공급사·저장 단가를 확인하세요. 규격=" + box.getCode());
             grouped.computeIfAbsent(box.getSupplier().getId(), key -> new ArrayList<>()).add(line);
         }
-        if (grouped.isEmpty()) throw new BusinessException(ErrorCode.INVALID_STATE, "발주할 제안 수량이 없습니다.");
-        var result = new ArrayList<PurchaseOrder>();
+        if (grouped.isEmpty()) {
+            if (!existing.isEmpty()) return new DraftResult(false, group(proposal.getId(), existing));
+            throw new BusinessException(ErrorCode.INVALID_STATE, "발주할 제안 수량이 없습니다.");
+        }
+        var result = new ArrayList<>(existing);
+        boolean created = false;
         for (var supplierLines : grouped.values()) {
             var supplier = supplierLines.getFirst().getBoxSpec().getSupplier();
-            var date = request.requestedDeliveryDate() != null ? request.requestedDeliveryDate()
-                    : LocalDate.now(properties.timezone()).plusDays(supplier.getLeadTimeDays() == null ? 0 : supplier.getLeadTimeDays());
-            var order = orders.saveAndFlush(PurchaseOrder.builder().warehouse(warehouse).proposal(proposal).supplier(supplier)
-                    .poNo(number()).status(PurchaseOrderStatus.PENDING).requestedBy(user).requestedDeliveryDate(date).build());
-            items.saveAllAndFlush(supplierLines.stream().map(line -> PurchaseOrderItem.builder().purchaseOrder(order)
+            var order = existing.stream().filter(o -> o.getStatus() == PurchaseOrderStatus.PENDING
+                    && o.getSupplier() != null && supplier.getId().equals(o.getSupplier().getId())).findFirst().orElse(null);
+            if (order == null) {
+                // 맞춤 공급사의 납기를 모르면 임의로 오늘로 채우지 않고 관리자가 날짜를 확인하게 한다.
+                boolean custom = supplierLines.stream().anyMatch(line -> Boolean.TRUE.equals(line.getBoxSpec().getIsCustom()));
+                var date = request.requestedDeliveryDate() != null ? request.requestedDeliveryDate()
+                        : custom && supplier.getLeadTimeDays() == null ? null
+                        : LocalDate.now(properties.timezone()).plusDays(supplier.getLeadTimeDays() == null ? 0 : supplier.getLeadTimeDays());
+                order = orders.saveAndFlush(PurchaseOrder.builder().warehouse(warehouse).proposal(proposal).supplier(supplier)
+                        .poNo(number()).status(PurchaseOrderStatus.PENDING).requestedBy(user).requestedDeliveryDate(date).build());
+                result.add(order);
+                created = true;
+            } else {
+                order.touch();
+            }
+            var targetOrder = order;
+            items.saveAllAndFlush(supplierLines.stream().map(line -> PurchaseOrderItem.builder().purchaseOrder(targetOrder)
                     .boxSpec(line.getBoxSpec()).qty(line.getProposedQty()).unitPriceKrw(line.getUnitPriceKrw())
                     .boxSnapshot(line.getBoxSnapshot() == null ? BoxSnapshot.from(line.getBoxSpec()) : line.getBoxSnapshot()).build()).toList());
-            result.add(order);
         }
-        return new DraftResult(true, group(proposal.getId(), result));
+        orders.flush();
+        return new DraftResult(created, group(proposal.getId(), result));
     }
 
     public PurchaseOrderResponse update(UUID warehouseId, UUID orderId, PurchaseOrderUpdateRequest request) {
@@ -106,15 +127,24 @@ public class PurchaseOrderWorkflowService {
                 if (order.getRequestedDeliveryDate() == null || order.getSupplier() == null
                         || lines.stream().noneMatch(line -> line.getQty() != null && line.getQty() > 0))
                     throw new BusinessException(ErrorCode.INVALID_STATE, "납품일·공급사·품목을 확인하세요.");
+                var activating = new ArrayList<com.skala.chagok.domain.box.entity.BoxSpec>();
                 for (var line : lines) {
                     var box = boxes.findByIdAndWarehouseId(line.getBoxSpec().getId(), warehouseId)
                             .orElseThrow(() -> BusinessException.notFound("박스 규격"));
                     if (line.getQty() == null || line.getQty() < 0 || line.getUnitPriceKrw() == null || line.getUnitPriceKrw() < 0
-                            || !Boolean.TRUE.equals(box.getIsActive()) || box.getSupplier() == null
+                            || box.getSupplier() == null
                             || !box.getSupplier().getId().equals(order.getSupplier().getId()))
                         throw new BusinessException(ErrorCode.INVALID_STATE, "품목·공급사 정보가 변경되었습니다. 발주서를 확인하세요.");
+                    if (line.getQty() == 0) continue;
+                    if (!Boolean.TRUE.equals(box.getIsActive())) {
+                        if (!agentItems.pendingCustom(order.getProposal(), box))
+                            throw new BusinessException(ErrorCode.INVALID_STATE, "활성 규격 또는 제안서의 맞춤 규격인지 확인하세요.");
+                        activating.add(box);
+                    }
                 }
                 order.approve(user(warehouseId));
+                activating.forEach(com.skala.chagok.domain.box.entity.BoxSpec::activateForPurchase);
+                if (!activating.isEmpty()) matchRefresh.recalculateMatches(warehouseId, true);
                 notices.publish(warehouseId, "PURCHASE", "발주 승인 완료", order.getPoNo() + " 발주서가 승인되었습니다.", "/purchase-orders");
             } else if (order.getStatus() == PurchaseOrderStatus.PENDING && next == PurchaseOrderStatus.REJECTED) {
                 if (request.decisionReason() == null || request.decisionReason().isBlank())

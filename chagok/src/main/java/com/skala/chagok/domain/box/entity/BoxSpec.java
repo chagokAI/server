@@ -122,6 +122,11 @@ public class BoxSpec {
         this.stockUpdatedAt = now;
     }
 
+    /** 맞춤 발주 초안을 승인했을 때 활성화한다. 입고 전에는 재고를 늘리지 않는다. */
+    public void activateForPurchase() {
+        this.isActive = true;
+    }
+
     public void update(String code, String name, Character sizeClass,
                        Integer innerWidthMm, Integer innerDepthMm, Integer innerHeightMm,
                        String material, Supplier supplier, Integer unitPriceKrw,

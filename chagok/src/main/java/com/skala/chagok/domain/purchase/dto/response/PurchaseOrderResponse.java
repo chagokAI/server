@@ -18,11 +18,17 @@ public record PurchaseOrderResponse(UUID id, String poNo, UUID proposalId, Purch
         }
     }
     public record Recipient(UUID warehouseId, String name, String address, String receivingHours, String receivingContact) {}
-    public record Item(BoxSnapshot boxSpec, Integer qty, Integer unitPriceKrw, Long amountKrw, boolean snapshotAvailable) {
+    public record Item(BoxSnapshot boxSpec, Integer qty, Integer unitPriceKrw, Long amountKrw, boolean snapshotAvailable,
+                       boolean isCustom) {
+        public Item(BoxSnapshot boxSpec, Integer qty, Integer unitPriceKrw, Long amountKrw, boolean snapshotAvailable) {
+            this(boxSpec, qty, unitPriceKrw, amountKrw, snapshotAvailable, false);
+        }
+
         public static Item from(PurchaseOrderItem item) {
             return new Item(item.getBoxSnapshot() == null ? BoxSnapshot.from(item.getBoxSpec()) : item.getBoxSnapshot(),
                     item.getQty(), item.getUnitPriceKrw(), item.getQty() == null || item.getUnitPriceKrw() == null ? null
-                    : Math.multiplyExact(item.getQty().longValue(), item.getUnitPriceKrw().longValue()), item.getBoxSnapshot() != null);
+                    : Math.multiplyExact(item.getQty().longValue(), item.getUnitPriceKrw().longValue()), item.getBoxSnapshot() != null,
+                    Boolean.TRUE.equals(item.getBoxSpec().getIsCustom()));
         }
     }
 

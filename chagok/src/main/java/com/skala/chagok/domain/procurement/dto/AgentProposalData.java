@@ -45,7 +45,8 @@ public final class AgentProposalData {
     public static List<Map<String, Object>> pendingLines(Map<String, Object> summary, Set<String> storedCodes) {
         if (!approved(summary)) return List.of();
         return rows(summary.get("lines")).stream()
-                .filter(line -> "NEW_SPEC".equals(line.get("type")) && line.get("boxSpecId") == null)
+                .filter(line -> ("NEW_SPEC".equals(line.get("type")) || "CUSTOM_SPEC".equals(line.get("type")))
+                        && line.get("boxSpecId") == null)
                 .filter(line -> line.get("boxCode") instanceof String code && !storedCodes.contains(code)).toList();
     }
 }
