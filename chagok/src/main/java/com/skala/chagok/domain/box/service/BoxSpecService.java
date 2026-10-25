@@ -2,11 +2,9 @@ package com.skala.chagok.domain.box.service;
 
 import com.skala.chagok.domain.box.dto.BoxSpecCreateRequest;
 import com.skala.chagok.domain.box.dto.BoxSpecResponse;
-import com.skala.chagok.domain.box.dto.BoxSpecPageResponse;
 import com.skala.chagok.domain.box.dto.BoxSpecUpdateRequest;
 import com.skala.chagok.domain.box.entity.BoxSpec;
 import com.skala.chagok.domain.box.repository.BoxSpecRepository;
-import com.skala.chagok.domain.box.repository.BoxSpecSpecs;
 import com.skala.chagok.domain.event.repository.ItemEventRepository;
 import com.skala.chagok.domain.procurement.repository.ProcurementProposalItemRepository;
 import com.skala.chagok.domain.product.repository.ProductRepository;
@@ -18,9 +16,6 @@ import com.skala.chagok.domain.warehouse.entity.Warehouse;
 import com.skala.chagok.domain.warehouse.repository.WarehouseRepository;
 import com.skala.chagok.global.error.BusinessException;
 import com.skala.chagok.global.error.ErrorCode;
-import com.skala.chagok.global.response.PageResponse;
-import com.skala.chagok.global.web.PageRequests;
-import com.skala.chagok.global.web.Specs;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -31,8 +26,6 @@ import java.util.stream.Collectors;
 
 import lombok.RequiredArgsConstructor;
 
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,8 +34,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class BoxSpecService {
 
-    private static final Map<String, String> SORTS = Map.of("boxCode", "code");
-    private static final String DEFAULT_SORT = "boxCode,asc";
     /** 아직 입고가 끝나지 않은 발주 상태. 삭제 불가 모달의 "진행 중 발주"에 쓴다. */
     private static final List<PurchaseOrderStatus> OPEN_PURCHASE_ORDER_STATUSES = List.of(
             PurchaseOrderStatus.PENDING, PurchaseOrderStatus.APPROVED, PurchaseOrderStatus.IN_TRANSIT);
@@ -57,33 +48,6 @@ public class BoxSpecService {
     private final com.skala.chagok.domain.inventory.repository.InventoryMovementRepository movements;
     private final com.skala.chagok.domain.product.service.ProductMatchingService matching;
     private final BoxSizeClassifier sizeClassifier;
-
-    public BoxSpecPageResponse getBoxSpecs(UUID warehouseId, String keyword, Boolean active,
-                                                     Boolean custom, int page, int size, String sort) {
-        requireWarehouse(warehouseId);
-        Pageable pageable = PageRequests.of(page, size, sort, SORTS, DEFAULT_SORT);
-
-        Specification<BoxSpec> spec = Specs.allOf(
-                BoxSpecSpecs.in(warehouseId),
-                BoxSpecSpecs.keyword(keyword),
-                BoxSpecSpecs.active(active),
-                BoxSpecSpecs.custom(custom));
-        // 센터당 규격은 수십 개 수준이라 전체를 읽어 메모리에서 정렬·페이지 처리한다.
-        List<BoxSpec> sorted = boxSpecRepository.findAll(spec).stream()
-                .sorted(BoxSpecOrdering.of(pageable.getSort()))
-                .toList();
-        Map<UUID, Long> linked = linkedProductCounts(warehouseId);
-        Specification<BoxSpec> common = Specs.allOf(BoxSpecSpecs.in(warehouseId), BoxSpecSpecs.keyword(keyword));
-        List<BoxSpec> all = boxSpecRepository.findAll(common);
-        long activeCount = all.stream().filter(s -> Boolean.TRUE.equals(s.getIsActive())).count();
-        long customCount = all.stream().filter(s -> Boolean.TRUE.equals(s.getIsCustom())).count();
-        Map<String, Long> counts = Map.of("ALL", (long) all.size(), "ACTIVE", activeCount,
-                "INACTIVE", all.size() - activeCount, "CUSTOM", customCount);
-        PageResponse<BoxSpecResponse> body = PageResponse.of(PageRequests.slice(sorted, pageable),
-                box -> BoxSpecResponse.from(box, linked.getOrDefault(box.getId(), 0L)), counts);
-        return BoxSpecPageResponse.of(body,
-                new BoxSpecPageResponse.Summary(all.size(), all.size() - customCount, customCount));
-    }
 
     public BoxSpecResponse getBoxSpec(UUID warehouseId, UUID boxSpecId) {
         return BoxSpecResponse.from(findBoxSpec(warehouseId, boxSpecId),

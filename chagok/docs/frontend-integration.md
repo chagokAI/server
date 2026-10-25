@@ -16,7 +16,7 @@ HTTP 성공 본문은 {data,meta}, 오류는 {error:{code,message,fieldErrors,re
 | sizeName, linkedProducts, custom | name, linkedProductCount, isCustom |
 | width/depth/height 수정 값 | 상품은 widthMm/depthMm/heightMm, 박스는 innerWidthMm/innerDepthMm/innerHeightMm |
 | matchedBoxId·manualReason·weight | boxSpecId·matchOverrideReason·weightG |
-| current·safety·level·daysLeft | onHandQty·safetyQty·stockLevelPct·daysToStockout |
+| current·safety·level·daysLeft | 목록 각 행의 stock 안 onHandQty·safetyQty·stockLevelPct·daysToStockout |
 | quantity·unitPrice·amount | qty·unitPriceKrw·amountKrw, 포맷 없는 JSON 숫자 |
 | 수정·삭제 | 조회 응답 version을 expectedVersion으로 전달. 409면 새로 조회 |
 | 화면 1페이지 | 요청 page=0. totalPages·counts·summary는 서버 응답 사용 |
@@ -49,6 +49,8 @@ HTTP 성공 본문은 {data,meta}, 오류는 {error:{code,message,fieldErrors,re
 ## 화면별 흐름
 
 - 상품 수정: 상세 조회 → matchCandidates 표시 → PATCH 상품 → 응답·목록 재조회. 부적합한 기존 매칭은 해제된다.
+- 박스 재고/규격 관리: GET box-stocks 한 번으로 규격과 규격별 재고(stock)를 함께 받는다. 두 목록을 화면에서 합치지 않는다.
+- 같은 화면의 재고 정책 수정·입고는 행의 id·version을 그대로 쓴다. 규격을 먼저 PATCH했으면 그 응답의 version을 쓴다.
 - 규격 등록: 이름·분류·치수·단가·공급사·사용 여부를 전송한다. 생성 초기 재고·안전/목표 수량은 선택이다.
 - 안전 재고: safetyDays와 alertEnabled를 저장할 수 있다. 참고 수량이 없으면 safetyQty 직접 입력이 필요하다.
 - 재고 수준·상태는 서버 값을 사용한다. 프론트에서 현재/안전 재고 비율로 다시 계산하지 않는다.

@@ -83,7 +83,7 @@ class AuthFlowIntegrationTest {
     @Test void sessionCannotReadOrWriteAnotherWarehouse() throws Exception {
         var browser = login(false);
         String base = "/api/v1/warehouses/" + UUID.randomUUID();
-        mvc.perform(get(base + "/box-specs").session(browser.session())).andExpect(status().isForbidden());
+        mvc.perform(get(base + "/box-stocks").session(browser.session())).andExpect(status().isForbidden());
         mvc.perform(post(base + "/ai-jobs").session(browser.session()).header(browser.header(), browser.token())
                 .contentType("application/json").content("{}"))
                 .andExpect(status().isForbidden()).andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
