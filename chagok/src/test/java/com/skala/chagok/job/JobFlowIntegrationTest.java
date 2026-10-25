@@ -245,6 +245,31 @@ class JobFlowIntegrationTest {
         assertThat(result.estimatedBoxCount()).isZero();
     }
 
+    @Test void storedHqReportsAreReadableWithoutAnAgentServer() throws Exception {
+        jdbc.execute("create schema if not exists box_agent");
+        jdbc.execute("""
+                create table if not exists box_agent.hq_report (month varchar(7) primary key,
+                    html text not null, data jsonb not null, summary jsonb, recommendations jsonb,
+                    updated_at timestamptz not null default now())
+                """);
+        jdbc.update("""
+                insert into box_agent.hq_report (month, html, data, summary)
+                values ('1999-01', '<html>보관된 리포트</html>', '[{"warehouseId":"stored-center","ship":123}]', '["보관된 총평"]')
+                """);
+        try {
+            mvc.perform(get("/api/v1/admin/hq-reports")).andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.items[?(@.month == '1999-01')]").isNotEmpty());
+            mvc.perform(get("/api/v1/admin/hq-reports/1999-01")).andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.html").value("<html>보관된 리포트</html>"))
+                    .andExpect(jsonPath("$.data.data[0].ship").value(123))
+                    .andExpect(jsonPath("$.data.summary[0]").value("보관된 총평"))
+                    .andExpect(jsonPath("$.data.recommendations").doesNotExist());
+            mvc.perform(get("/api/v1/admin/hq-reports/1998-12")).andExpect(status().isNotFound());
+        } finally {
+            jdbc.update("delete from box_agent.hq_report where month = '1999-01'");
+        }
+    }
+
     @Test void validatesRequestsAndProtectsScopedResources() throws Exception {
         mvc.perform(post(base() + "/ai-jobs").contentType("application/json").content("{\"targetMonth\":\"2026-13\",\"type\":\"PROCUREMENT_AND_COST\"}"))
                 .andExpect(status().isBadRequest());
