@@ -110,6 +110,15 @@ public class BoxSpec {
         this.safetyQty = safetyQty;
     }
 
+    public void useAutomaticSafety(int days) {
+        this.safetyQty = null;
+        this.safetyDays = days;
+    }
+
+    public void useAutomaticTarget() {
+        this.targetQty = null;
+    }
+
     public void updatePolicy(Integer qty, Integer days, Boolean alert, Integer target) {
         if (qty != null) this.safetyQty = qty;
         if (days != null) this.safetyDays = days;

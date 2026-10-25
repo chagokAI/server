@@ -72,7 +72,8 @@ public class AgentProposalItemService {
                         .sizeClass(sizes.classify(dims[0], dims[1], dims[2]))
                         .innerWidthMm(dims[0]).innerDepthMm(dims[1]).innerHeightMm(dims[2])
                         .supplier(supplier).unitPriceKrw(price).isCustom(custom).isActive(!custom)
-                        .onHandQty(0).safetyQty(safety).alertEnabled(true).stockUpdatedAt(Instant.now())
+                        .onHandQty(0).safetyDays(com.skala.chagok.domain.inventory.service.InventoryPolicyProjection.DEFAULT_SAFETY_DAYS)
+                        .alertEnabled(true).stockUpdatedAt(Instant.now())
                         .description(description).build());
                 if (!custom) addedActive = true;
             }

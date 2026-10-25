@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.OptionalDouble;
 import java.util.UUID;
+import java.util.Map;
 
 import lombok.RequiredArgsConstructor;
 
@@ -41,13 +42,21 @@ public class InventoryService {
     private final InventoryUsageReader usages;
     private final ChagokProperties properties;
     private final com.skala.chagok.domain.notification.service.DomainNotificationService notices;
+    private final InventoryPolicyReader policyReader;
+
+    public Map<UUID, InventoryPolicyProjection> policies(UUID warehouseId, List<BoxSpec> specs, InventoryUsage usage) {
+        return policyReader.read(warehouseId, specs, usage);
+    }
 
     /** 센터의 활성 규격 전체 기준 요약. 대시보드와 박스 재고/규격 목록이 같은 값을 쓴다. */
     public InventorySummary summarize(UUID warehouseId) {
+        return summarize(warehouseId, usages.read(warehouseId));
+    }
+
+    public InventorySummary summarize(UUID warehouseId, InventoryUsage usage) {
         requireWarehouse(warehouseId);
-        int bufferDays = properties.inventory().cautionBufferDays();
         List<BoxSpec> specs = boxSpecRepository.findByWarehouseIdAndIsActiveTrue(warehouseId);
-        return summarize(specs, bufferDays, usages.read(warehouseId));
+        return summarize(specs, usage, policies(warehouseId, specs, usage));
     }
 
     @Transactional
@@ -59,40 +68,38 @@ public class InventoryService {
             throw new BusinessException(ErrorCode.VERSION_CONFLICT);
         }
 
-        if (request.safetyQty() == null && request.safetyDays() == null && request.alertEnabled() == null && request.targetQty() == null)
+        if (request.safetyQty() == null && request.safetyDays() == null && request.alertEnabled() == null
+                && request.targetQty() == null && !Boolean.TRUE.equals(request.automaticTarget()))
             throw BusinessException.invalidField("safetyQty", "변경할 정책을 입력하세요.");
         InventoryUsage usage = usages.read(warehouseId);
         BigDecimal daily = usage.daily(inventoryId);
         Integer qty = request.safetyQty();
-        if (request.safetyDays() != null && qty == null) {
-            if (daily == null) throw new BusinessException(ErrorCode.INVALID_STATE, "일수 기준 계산을 위한 이번 달 참고 수량이 없습니다. safetyQty를 직접 입력하세요.");
-            try {
-                qty = BigDecimal.valueOf(usage.monthly().get(inventoryId)).multiply(BigDecimal.valueOf(request.safetyDays()))
-                        .divide(BigDecimal.valueOf(usage.month().lengthOfMonth()), 0, RoundingMode.CEILING).intValueExact();
-            } catch (ArithmeticException e) { throw BusinessException.invalidField("safetyDays", "안전 재고 수량 범위를 초과했습니다."); }
-        }
+        if (Boolean.TRUE.equals(request.automaticTarget()) && request.targetQty() != null)
+            throw BusinessException.invalidField("targetQty", "자동 계산과 직접 수량을 함께 지정할 수 없습니다.");
         boolean wasShort = com.skala.chagok.domain.notification.service.DomainNotificationService.shortage(boxSpec);
         boolean wasEnabled = !Boolean.FALSE.equals(boxSpec.getAlertEnabled());
+        if (request.safetyDays() != null && qty == null) boxSpec.useAutomaticSafety(request.safetyDays());
+        if (Boolean.TRUE.equals(request.automaticTarget())) boxSpec.useAutomaticTarget();
         boxSpec.updatePolicy(qty, request.safetyDays(), request.alertEnabled(), request.targetQty());
         notices.inventory(boxSpec, wasShort, wasEnabled);
         // @Version은 flush 시점에 올라가므로, 응답에 새 버전을 담으려면 먼저 flush한다.
         boxSpecRepository.flush();
-        InventoryStatus status = InventoryStatus.of(boxSpec, properties.inventory().cautionBufferDays());
-        return InventoryItemResponse.from(boxSpec, status, properties.timezone(), daily, usage.dataAsOf());
+        var policy = policies(warehouseId, List.of(boxSpec), usage).get(boxSpec.getId());
+        return InventoryItemResponse.from(boxSpec, policy.status(), properties.timezone(), daily, usage.dataAsOf(), policy);
     }
 
-    private InventorySummary summarize(List<BoxSpec> specs, int bufferDays, InventoryUsage usage) {
+    private InventorySummary summarize(List<BoxSpec> specs, InventoryUsage usage, Map<UUID, InventoryPolicyProjection> policies) {
         Long totalOnHand = specs.stream().anyMatch(spec -> spec.getOnHandQty() == null) ? null : specs.stream()
                 .mapToLong(spec -> spec.getOnHandQty() == null ? 0 : spec.getOnHandQty())
                 .sum();
         List<String> shortageCodes = specs.stream()
-                .filter(spec -> InventoryStatus.of(spec, bufferDays) == InventoryStatus.SHORTAGE)
+                .filter(spec -> policies.get(spec.getId()).status() == InventoryStatus.SHORTAGE)
                 .map(BoxSpec::getCode)
                 .sorted(Comparator.nullsLast(Comparator.naturalOrder()))
                 .toList();
 
         OptionalDouble avgDays = specs.stream()
-                .map(BoxSpec::getDaysToStockout)
+                .map(spec -> policies.get(spec.getId()).daysToStockout())
                 .filter(Objects::nonNull)
                 .mapToInt(Integer::intValue)
                 .average();
@@ -114,7 +121,7 @@ public class InventoryService {
                 properties.inventory().targetDaysToStockout(),
                 lastUpdated == null ? null : lastUpdated.atZone(properties.timezone()).toOffsetDateTime(),
                 usage.source(),
-                (int) specs.stream().filter(spec -> InventoryStatus.of(spec, bufferDays) == InventoryStatus.UNKNOWN).count()
+                (int) specs.stream().filter(spec -> policies.get(spec.getId()).status() == InventoryStatus.UNKNOWN).count()
         );
     }
 

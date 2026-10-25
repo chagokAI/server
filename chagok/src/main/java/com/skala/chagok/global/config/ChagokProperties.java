@@ -30,11 +30,11 @@ public record ChagokProperties(
 
     /**
      * @param cautionBufferDays     예상 소진일이 (공급사 리드타임 + 이 값) 이하이면 '주의'
-     * @param targetDaysToStockout  평균 재고 소진일 목표 (요약 카드의 "목표 14일 이상")
+     * @param targetDaysToStockout  기본 재고 보유일수 목표 (납기 5일 + 안전 7일)
      */
     public record Inventory(
             @DefaultValue("3") int cautionBufferDays,
-            @DefaultValue("14") int targetDaysToStockout
+            @DefaultValue("12") int targetDaysToStockout
     ) {
     }
 }

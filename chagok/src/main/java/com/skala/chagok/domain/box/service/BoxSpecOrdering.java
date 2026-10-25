@@ -35,12 +35,16 @@ public final class BoxSpecOrdering {
      * DB 정렬과 같게 NULL은 방향과 관계없이 항상 뒤로 보낸다.
      */
     public static Comparator<BoxSpec> of(Sort sort) {
+        return of(sort, BoxSpec::getDaysToStockout);
+    }
+
+    public static Comparator<BoxSpec> of(Sort sort, Function<BoxSpec, Integer> daysToStockout) {
         Comparator<BoxSpec> result = null;
         for (Sort.Order order : sort) {
             Comparator<BoxSpec> next = switch (order.getProperty()) {
                 case "code" -> order.isAscending() ? BOX_CODE : BOX_CODE.reversed();
                 case "onHandQty" -> by(BoxSpec::getOnHandQty, order);
-                case "daysToStockout" -> by(BoxSpec::getDaysToStockout, order);
+                case "daysToStockout" -> by(daysToStockout, order);
                 case "id" -> by(BoxSpec::getId, order);
                 default -> throw new IllegalStateException("정렬 매핑 누락: " + order.getProperty());
             };

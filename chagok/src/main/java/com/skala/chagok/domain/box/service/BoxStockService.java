@@ -57,16 +57,16 @@ public class BoxStockService {
                                              int page, int size, String sort) {
         warehouses.require(warehouseId);
         Pageable pageable = PageRequests.of(page, size, sort, SORTS, DEFAULT_SORT);
-        int bufferDays = properties.inventory().cautionBufferDays();
         ZoneId zone = properties.timezone();
         InventoryUsage usage = usages.read(warehouseId);
 
         List<BoxSpec> matched = boxSpecRepository.findAll(
                 Specs.allOf(BoxSpecSpecs.in(warehouseId), BoxSpecSpecs.keyword(keyword)));
+        var policies = inventoryService.policies(warehouseId, matched, usage);
         List<BoxSpec> filtered = matched.stream()
                 .filter(spec -> active == null || active == Boolean.TRUE.equals(spec.getIsActive()))
                 .filter(spec -> custom == null || custom == Boolean.TRUE.equals(spec.getIsCustom()))
-                .sorted(BoxSpecOrdering.of(pageable.getSort()))
+                .sorted(BoxSpecOrdering.of(pageable.getSort(), spec -> policies.get(spec.getId()).daysToStockout()))
                 .toList();
 
         long activeCount = matched.stream().filter(spec -> Boolean.TRUE.equals(spec.getIsActive())).count();
@@ -77,10 +77,10 @@ public class BoxStockService {
         Map<UUID, Long> linked = linkedProductCounts(warehouseId);
         PageResponse<BoxStockResponse> body = PageResponse.of(PageRequests.slice(filtered, pageable),
                 spec -> BoxStockResponse.from(spec, linked.getOrDefault(spec.getId(), 0L),
-                        InventoryStatus.of(spec, bufferDays), zone, usage.daily(spec.getId()), usage.dataAsOf()),
+                        policies.get(spec.getId()).status(), zone, usage.daily(spec.getId()), usage.dataAsOf(), policies.get(spec.getId())),
                 counts);
         return BoxStockPageResponse.of(body, new BoxStockPageResponse.Summary(matched.size(),
-                matched.size() - customCount, customCount, inventoryService.summarize(warehouseId)));
+                matched.size() - customCount, customCount, inventoryService.summarize(warehouseId, usage)));
     }
 
     private Map<UUID, Long> linkedProductCounts(UUID warehouseId) {
