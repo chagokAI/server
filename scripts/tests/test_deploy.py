@@ -57,7 +57,7 @@ elif args[0] == "compose":
         state["current"] = state["images"][image]
         state["ddl"] = ddl[1] if ddl else None
         state["live"] = {}
-        for name in ("LIVE_FEEDER_ENABLED", "LIVE_ALLOW_REMOTE_DATABASE"):
+        for name in ("LIVE_FEEDER_ENABLED", "LIVE_ALLOW_REMOTE_DATABASE", "LIVE_RESET_ENABLED"):
             setting = re.search(name + r': "(true|false)"', override)
             if setting:
                 state["live"][name] = setting[1]
@@ -143,9 +143,9 @@ class DeploymentTests(unittest.TestCase):
     def save(self):
         (self.root / "docker.json").write_text(json.dumps(self.state))
 
-    def run_deploy(self, mode="deploy", image=IMAGE, live_feeder="", live_allow_remote=""):
+    def run_deploy(self, mode="deploy", image=IMAGE, live_feeder="", live_allow_remote="", live_reset=""):
         return subprocess.run(
-            ["bash", str(SCRIPT), mode, image, str(self.config), live_feeder, live_allow_remote],
+            ["bash", str(SCRIPT), mode, image, str(self.config), live_feeder, live_allow_remote, live_reset],
             env={**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}", "MOCK_ROOT": str(self.root)},
             text=True,
             capture_output=True,
@@ -303,6 +303,7 @@ class DeploymentTests(unittest.TestCase):
                 "DEPLOY_KNOWN_HOSTS": "test-host-key",
                 "LIVE_FEEDER_ENABLED": "true",
                 "LIVE_ALLOW_REMOTE_DATABASE": "true",
+                "LIVE_RESET_ENABLED": "true",
             },
             capture_output=True,
             text=True,
@@ -312,6 +313,7 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(self.current(), NEW_ID)
         self.assertEqual(self.live_settings(), {
             "LIVE_FEEDER_ENABLED": "true", "LIVE_ALLOW_REMOTE_DATABASE": "true",
+            "LIVE_RESET_ENABLED": "true",
         })
 
     def test_changing_live_variables_redeploys_same_image_and_rollback_restores_values(self):
@@ -326,10 +328,11 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(self.current(), NEW_ID)
         self.assertEqual(self.live_settings(), {
             "LIVE_FEEDER_ENABLED": "false", "LIVE_ALLOW_REMOTE_DATABASE": "false",
+            "LIVE_RESET_ENABLED": "false",
         })
 
     def test_failed_release_restores_live_variables_and_previous_record(self):
-        self.assertEqual(self.run_deploy(live_feeder="true", live_allow_remote="true").returncode, 0)
+        self.assertEqual(self.run_deploy(live_feeder="true", live_allow_remote="true", live_reset="true").returncode, 0)
         previous_live = (self.deploy_state / "previous-live-env").read_text()
         self.state = json.loads((self.root / "docker.json").read_text())
         third_id = "sha256:" + "d" * 64
@@ -337,11 +340,12 @@ class DeploymentTests(unittest.TestCase):
         self.state.update(new=third_id, bad_api=True)
         self.state["images"][third_image] = third_id
         self.save()
-        result = self.run_deploy(image=third_image, live_feeder="false", live_allow_remote="false")
+        result = self.run_deploy(image=third_image, live_feeder="false", live_allow_remote="false", live_reset="false")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.current(), NEW_ID)
         self.assertEqual(self.live_settings(), {
             "LIVE_FEEDER_ENABLED": "true", "LIVE_ALLOW_REMOTE_DATABASE": "true",
+            "LIVE_RESET_ENABLED": "true",
         })
         self.assertEqual((self.deploy_state / "previous-live-env").read_text(), previous_live)
         result = self.run_deploy(mode="rollback", image="")
@@ -350,7 +354,7 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(self.live_settings()["LIVE_FEEDER_ENABLED"], "false")
 
     def test_omitted_live_arguments_preserve_running_settings(self):
-        self.state["live"] = {"LIVE_FEEDER_ENABLED": "true", "LIVE_ALLOW_REMOTE_DATABASE": "true"}
+        self.state["live"] = {"LIVE_FEEDER_ENABLED": "true", "LIVE_ALLOW_REMOTE_DATABASE": "true", "LIVE_RESET_ENABLED": "true"}
         self.save()
         result = self.run_deploy()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -364,11 +368,33 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(self.current(), OLD_ID)
         self.assertEqual(self.live_settings(), {
             "LIVE_FEEDER_ENABLED": "false", "LIVE_ALLOW_REMOTE_DATABASE": "false",
+            "LIVE_RESET_ENABLED": "false",
         })
+
+    def test_reset_variable_alone_redeploys_same_image_and_rollback_restores_it(self):
+        self.assertEqual(self.run_deploy(live_allow_remote="true").returncode, 0)
+        result = self.run_deploy(live_reset="true")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.up_commands()), 2)
+        self.assertEqual(self.live_settings()["LIVE_RESET_ENABLED"], "true")
+        self.assertEqual(self.live_settings()["LIVE_ALLOW_REMOTE_DATABASE"], "true")
+        result = self.run_deploy(mode="rollback", image="")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.up_commands()), 3)
+        self.assertEqual(self.live_settings()["LIVE_RESET_ENABLED"], "false")
+        self.assertEqual(self.live_settings()["LIVE_ALLOW_REMOTE_DATABASE"], "true")
+
+    def test_rollback_supports_records_created_before_reset_setting_was_added(self):
+        self.assertEqual(self.run_deploy(live_reset="true", live_allow_remote="true").returncode, 0)
+        (self.deploy_state / "previous-live-env").write_text(
+            "LIVE_FEEDER_ENABLED=false\nLIVE_ALLOW_REMOTE_DATABASE=false\n")
+        result = self.run_deploy(mode="rollback", image="")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.live_settings()["LIVE_RESET_ENABLED"], "false")
 
     def test_invalid_live_values_are_rejected_before_deployment(self):
         for value in ("TRUE", "1", "true'; touch /tmp/injected; '"):
-            for argument in ("live_feeder", "live_allow_remote"):
+            for argument in ("live_feeder", "live_allow_remote", "live_reset"):
                 with self.subTest(value=value, argument=argument):
                     result = self.run_deploy(**{argument: value})
                     self.assertNotEqual(result.returncode, 0)
@@ -511,7 +537,7 @@ class SshTransportTests(unittest.TestCase):
         self.assertFalse((self.root / "ssh.json").exists())
 
     def test_invalid_live_values_are_rejected_before_remote_execution(self):
-        for name in ("LIVE_FEEDER_ENABLED", "LIVE_ALLOW_REMOTE_DATABASE"):
+        for name in ("LIVE_FEEDER_ENABLED", "LIVE_ALLOW_REMOTE_DATABASE", "LIVE_RESET_ENABLED"):
             with self.subTest(name=name):
                 self.env[name] = "true'; touch /tmp/injected; '"
                 self.assertNotEqual(self.run_transport().returncode, 0)

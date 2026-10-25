@@ -7,9 +7,13 @@ import com.skala.chagok.domain.user.repository.AppUserRepository;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.transaction.annotation.Transactional;
+import com.skala.chagok.domain.notification.dto.NotificationPageResponse;
+import com.skala.chagok.domain.notification.stream.NotificationChanged;
 
-/** 업무 변경 트랜잭션 안에서 센터 사용자에게 알림을 저장한다. 외부 메시지는 전송하지 않는다. */
-@Service @RequiredArgsConstructor
+/** 업무 변경과 알림 저장을 같은 트랜잭션으로 묶고 커밋 후 화면에 전달한다. */
+@Service @RequiredArgsConstructor @Transactional
 public class DomainNotificationService {
     /**
      * 라이브 재생 때문에 생긴 알림의 표시. 알림에는 출처 컬럼이 없고 스키마는 DB 담당 소유라, 이동 링크의 쿼리 인자로 남긴다.
@@ -19,6 +23,7 @@ public class DomainNotificationService {
 
     private final AppUserRepository users;
     private final NotificationRepository notifications;
+    private final ApplicationEventPublisher events;
     public static boolean shortage(BoxSpec box) {
         return box.getOnHandQty() != null && box.getSafetyQty() != null && box.getOnHandQty() < box.getSafetyQty();
     }
@@ -42,7 +47,9 @@ public class DomainNotificationService {
         return link + (link.contains("?") ? "&" : "?") + LIVE_ORIGIN_QUERY;
     }
     public void publish(UUID warehouseId, String category, String title, String message, String link) {
-        notifications.saveAll(users.findByWarehouseId(warehouseId).stream().map(user -> Notification.builder()
+        var saved = notifications.saveAllAndFlush(users.findByWarehouseId(warehouseId).stream().map(user -> Notification.builder()
                 .recipient(user).category(category).title(title).message(message).link(link).build()).toList());
+        saved.forEach(notification -> events.publishEvent(new NotificationChanged(
+                notification.getRecipient().getId(), NotificationPageResponse.Item.from(notification))));
     }
 }

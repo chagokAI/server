@@ -22,13 +22,15 @@ if [ "$mode" = deploy ]; then
   [[ "$image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ ]] || die 'Use a GHCR image with a full sha256 digest'
   live_feeder=${LIVE_FEEDER_ENABLED:-}
   live_allow_remote=${LIVE_ALLOW_REMOTE_DATABASE:-}
-  for value in "$live_feeder" "$live_allow_remote"; do
+  live_reset=${LIVE_RESET_ENABLED:-}
+  for value in "$live_feeder" "$live_allow_remote" "$live_reset"; do
     [[ -z "$value" || "$value" = true || "$value" = false ]] || die 'Live settings must be true or false'
   done
 else
   image=''
   live_feeder=''
   live_allow_remote=''
+  live_reset=''
 fi
 
 umask 077
@@ -42,4 +44,4 @@ ssh -T -i "$work_dir/key" -l "$DEPLOY_USER" -p "$port" \
   -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
   -o "UserKnownHostsFile=$work_dir/known_hosts" -o ConnectTimeout=10 \
   -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
-  "$DEPLOY_HOST" "bash -s -- '$mode' '$image' '$config' '$live_feeder' '$live_allow_remote'" < "$script_dir/deploy-server.sh"
+  "$DEPLOY_HOST" "bash -s -- '$mode' '$image' '$config' '$live_feeder' '$live_allow_remote' '$live_reset'" < "$script_dir/deploy-server.sh"

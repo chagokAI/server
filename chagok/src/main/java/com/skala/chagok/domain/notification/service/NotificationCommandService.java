@@ -12,12 +12,15 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.context.ApplicationEventPublisher;
+import com.skala.chagok.domain.notification.stream.NotificationChanged;
 
 @Service @RequiredArgsConstructor @Transactional
 public class NotificationCommandService {
     private final NotificationRepository notifications;
     private final CurrentUserProvider users;
     private final WarehouseQueryGuard warehouses;
+    private final ApplicationEventPublisher events;
 
     /** 알림 한 건을 읽음 처리한다. 이미 읽은 알림이면 처음 읽은 시각을 그대로 두고 현재 상태를 돌려준다. */
     public NotificationPageResponse.Item read(UUID warehouseId, UUID notificationId) {
@@ -26,6 +29,7 @@ public class NotificationCommandService {
                 .findByIdAndRecipientIdAndRecipientWarehouseId(notificationId, user.getId(), warehouseId)
                 .orElseThrow(() -> BusinessException.notFound("알림"));
         notification.markRead(Instant.now());
+        events.publishEvent(new NotificationChanged(user.getId(), null));
         return NotificationPageResponse.Item.from(notification);
     }
 
@@ -35,6 +39,7 @@ public class NotificationCommandService {
         Instant now = Instant.now();
         int updated = notifications.markReadUntil(user.getId(), warehouseId, through == null ? now : through, now);
         long unread = notifications.countByRecipientIdAndRecipientWarehouseIdAndReadAtIsNull(user.getId(), warehouseId);
+        if (updated > 0) events.publishEvent(new NotificationChanged(user.getId(), null));
         return new NotificationReadAllResponse(updated, unread);
     }
 

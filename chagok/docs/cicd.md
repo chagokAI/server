@@ -28,12 +28,13 @@ server 저장소의 `production` Environment에 다음 값을 등록한다.
 `DEPLOY_ENABLED`는 Environment 안이 아닌 저장소 Variables에 등록한다.
 초기에는 `false`로 두고 CI·이미지 발행을 확인한 뒤 활성화한다.
 라이브 물류 재생을 사용할 때는 같은 저장소 Variables에 `LIVE_FEEDER_ENABLED=true`,
-`LIVE_ALLOW_REMOTE_DATABASE=true`를 등록한다. 두 변수는 미등록 시 `false`이며,
+`LIVE_ALLOW_REMOTE_DATABASE=true`를 등록한다. 매시 정각·30분 라이브 변경분 초기화도 사용하려면
+`LIVE_RESET_ENABLED=true`를 추가한다. 세 변수는 미등록 시 `false`이며,
 Server Deploy가 SSH 배포 스크립트를 거쳐 backend 컨테이너의 환경변수로 전달한다.
 `postgres` 같은 Docker 서비스 이름으로 접속하는 DB도 loopback 주소가 아니므로 라이브 재생에는 원격 DB 허용이 필요하다.
 기능을 활성화해도 물품 투입은 화면에서 재생을 누를 때 시작한다.
 변수 변경만으로 배포가 시작되지는 않는다. main에 push하거나 Server Deploy를 main으로 수동 실행해야 적용된다.
-같은 이미지여도 두 변수의 값이 바뀌면 backend를 다시 생성한다.
+같은 이미지여도 세 변수 중 하나가 바뀌면 backend를 다시 생성한다. 수동·자동 롤백은 이전 값을 복원한다.
 이미지 발행은 GitHub가 자동 제공하는 `GITHUB_TOKEN`과 해당 작업의 `packages: write` 권한을 사용한다.
 server 저장소도 client와 별도로 Secrets 등록이 필요하며 SSH 키 자체는 재사용한다.
 

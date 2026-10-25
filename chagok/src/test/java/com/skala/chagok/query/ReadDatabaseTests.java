@@ -254,6 +254,35 @@ class ReadDatabaseTests {
         assertThat(result.items().getFirst().title()).isEqualTo("내용");
     }
 
+    @Test void notificationHistoryPaginatesBeyondPreviewAndFiltersReadStateInTheDatabase() {
+        UUID userId = UUID.randomUUID();
+        jdbc.update("insert into app_user (id, warehouse_id, name) values (?, ?, '본인')", userId, warehouseId);
+        for (int i = 0; i < 45; i++) {
+            jdbc.update("insert into notification (id, recipient_id, category, message, created_at, read_at) values (?, ?, ?, ?, ?, ?)",
+                    UUID.randomUUID(), userId, i % 2 == 0 ? "INVENTORY" : "AI", "알림 " + i,
+                    Timestamp.from(Instant.parse("2026-10-19T00:00:00Z").plusSeconds(i)),
+                    i < 10 ? Timestamp.from(Instant.parse("2026-10-20T00:00:00Z")) : null);
+        }
+        var users = mock(CurrentUserProvider.class);
+        when(users.getCurrentUser()).thenReturn(em.find(AppUser.class, userId));
+        var service = new NotificationQueryService(repositories.getRepository(NotificationRepository.class), users,
+                new WarehouseQueryGuard(repositories.getRepository(WarehouseRepository.class)));
+        var first = service.list(warehouseId, null, false, 0, 20, null);
+        var second = service.list(warehouseId, null, false, 1, 20, null);
+        var last = service.list(warehouseId, null, false, 2, 20, null);
+        assertThat(first.totalElements()).isEqualTo(45);
+        assertThat(first.totalPages()).isEqualTo(3);
+        assertThat(first.items()).hasSize(20);
+        assertThat(second.items()).hasSize(20).doesNotContainAnyElementsOf(first.items());
+        assertThat(last.items()).hasSize(5);
+        assertThat(first.items().getFirst().message()).isEqualTo("알림 44");
+        assertThat(last.items().getLast().message()).isEqualTo("알림 0");
+        var filtered = service.list(warehouseId, NotificationPageResponse.Category.AI, true, 0, 20, null);
+        assertThat(filtered.totalElements()).isEqualTo(17);
+        assertThat(filtered.unreadCount()).isEqualTo(35);
+        assertThat(filtered.items()).allMatch(item -> item.unread() && "AI".equals(item.category()));
+    }
+
     @Test void savedCostJsonIsReadAsTypedResultAndJobsAreTenantScoped() {
         UUID jobId = UUID.randomUUID(), costId = UUID.randomUUID();
         Instant at = Instant.parse("2026-10-19T00:00:00Z");
