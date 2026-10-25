@@ -18,6 +18,7 @@ public class JobQueueService {
     private final NamedParameterJdbcTemplate jdbc;
     private final JobProperties properties;
     private final Clock jobClock;
+    private final com.skala.chagok.domain.notification.service.DomainNotificationService notices;
 
     @Transactional
     public int expireStale() {
@@ -43,6 +44,9 @@ public class JobQueueService {
     public void fail(JobClaim claim, String code, String message) {
         jobs.findById(claim.id()).filter(job -> job.getStatus() == AnalysisJob.Status.RUNNING
                         && Objects.equals(job.getVersion(), claim.version()))
-                .ifPresent(job -> job.fail(code, message, jobClock.instant()));
+                .ifPresent(job -> {
+                    job.fail(code, message, jobClock.instant());
+                    notices.proposalFailed(job);
+                });
     }
 }
