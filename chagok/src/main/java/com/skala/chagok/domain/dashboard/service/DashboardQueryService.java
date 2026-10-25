@@ -32,7 +32,7 @@ public class DashboardQueryService {
         YearMonth current = YearMonth.now(properties.timezone());
         String month = QueryValues.month(targetMonth, current.plusMonths(1)).toString();
         List<BoxSpec> specs = boxes.findByWarehouseIdAndIsActiveTrue(warehouseId);
-        var summary = inventory.getInventories(warehouseId, null, null, 0, 1, null).summary();
+        var summary = inventory.summarize(warehouseId);
         var proposal = forecasts.latestProposal(warehouseId, month, "AUTO");
         var plan = AgentPlanProjection.from(proposal.result(), sizes);
         Long demand = plan.totalUsage();

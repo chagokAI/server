@@ -221,17 +221,29 @@ class ReadDatabaseTests {
         for (boolean active : List.of(true, true, false)) jdbc.update(
                 "insert into product (id, warehouse_id, matched_box_spec_id, is_active, version) values (?, ?, ?, ?, 0)",
                 UUID.randomUUID(), warehouseId, first, active);
-        var service = new BoxSpecService(repositories.getRepository(BoxSpecRepository.class), repositories.getRepository(WarehouseRepository.class),
-                repositories.getRepository(SupplierRepository.class), repositories.getRepository(ProductRepository.class),
+        var boxSpecs = repositories.getRepository(BoxSpecRepository.class);
+        var warehouses = repositories.getRepository(WarehouseRepository.class);
+        var products = repositories.getRepository(ProductRepository.class);
+        var service = new BoxSpecService(boxSpecs, warehouses,
+                repositories.getRepository(SupplierRepository.class), products,
                 repositories.getRepository(PurchaseOrderItemRepository.class), repositories.getRepository(ProcurementProposalItemRepository.class),
                 repositories.getRepository(ItemEventRepository.class), mock(com.skala.chagok.domain.inventory.repository.InventoryMovementRepository.class),
                 mock(com.skala.chagok.domain.product.service.ProductMatchingService.class),
                 new com.skala.chagok.domain.box.service.BoxSizeClassifier(properties));
-        var result = service.getBoxSpecs(warehouseId, null, true, null, 0, 20, null);
+        var usages = new com.skala.chagok.domain.inventory.service.InventoryUsageReader(
+                repositories.getRepository(ProcurementProposalRepository.class),
+                repositories.getRepository(ProcurementProposalItemRepository.class), properties);
+        var inventories = new com.skala.chagok.domain.inventory.service.InventoryService(boxSpecs, warehouses, usages, properties,
+                mock(com.skala.chagok.domain.notification.service.DomainNotificationService.class));
+        var stocks = new com.skala.chagok.domain.box.service.BoxStockService(boxSpecs, products, usages, inventories,
+                new WarehouseQueryGuard(warehouses), properties);
+        var result = stocks.getBoxStocks(warehouseId, null, true, null, 0, 20, null);
         assertThat(result.items()).hasSize(1);
         assertThat(result.items().getFirst().linkedProductCount()).isEqualTo(2);
+        assertThat(result.items().getFirst().stock().status()).isEqualTo(com.skala.chagok.domain.inventory.dto.InventoryStatus.UNKNOWN);
         assertThat(result.counts()).containsEntry("ALL", 2L).containsEntry("ACTIVE", 1L).containsEntry("CUSTOM", 1L);
         assertThat(result.summary().totalSpecCount()).isEqualTo(2);
+        assertThat(result.summary().stock().activeSpecCount()).isEqualTo(1);
         assertThat(service.getBoxSpec(warehouseId, first).linkedProductCount()).isEqualTo(2);
     }
 

@@ -45,11 +45,10 @@
 - [x] MATCH-API-02 — `GET /api/v1/warehouses/{warehouseId}/products/{productId}` — 상품 상세·수동 지정 사유·version
 - [x] MATCH-API-03~05 — 상품 수정(치수 변경 시 1순위 자동 적용)·수동 박스 지정·비활성화
 - [x] (추가) `POST /api/v1/warehouses/{warehouseId}/product-matches/recalculate` — 미매칭 상품에 치수 기준 1순위 일괄 적용
-- [x] SPEC-API-01 — `GET /api/v1/warehouses/{warehouseId}/box-specs` — 목록·연결 상품 수·상태별 개수·요약
+- [x] BOXSTOCK-API-01 — `GET /api/v1/warehouses/{warehouseId}/box-stocks` — 박스 재고/규격 관리 목록·연결 상품 수·규격별 재고(stock)·사용 여부 개수·요약
 - [x] SPEC-API-02 — `GET /api/v1/warehouses/{warehouseId}/box-specs/{boxSpecId}` — 상세·연결 상품 수
 - [x] SPEC-API-03~05 — 규격 생성·수정·미사용이고 참조/재고 없는 규격 삭제(막히면 409 details)
 - [x] (추가) `GET /api/v1/box-materials` — 재질 드롭다운 선택지 `[{code, label}]`
-- [x] INV-API-01 — `GET /api/v1/warehouses/{warehouseId}/box-inventories` — 목록·요약·예측 출처·재고/예측 갱신 시각
 - [x] INV-API-02 — 안전 재고 정책 수정
 - [x] 기존 발주 승인 — `POST /api/v1/warehouses/{warehouseId}/purchase-orders` — APPROVED 발주서 생성·품목 규격 snapshot 저장
 
