@@ -354,6 +354,22 @@ GET purchase-orders/open?boxSpecId=UUID: APPROVED/IN_TRANSIT 중 미입고 수�
 기존 POST purchase-orders 직접 승인 경로는 단일 공급사·현재 단가를 검증하고 공통 envelope로 응답한다.
 신규 화면은 초안 생성·수정 흐름을 사용한다.
 
+## HIST-API-03: 발주서 PDF
+
+`GET W/purchase-orders/{purchaseOrderId}/pdf`는 발주서 상세와 같은 데이터를 A4 PDF로 내려준다.
+문서이므로 {data,meta} Envelope를 쓰지 않고 본문이 파일 그대로다. 조회 권한은 상세 조회와 같다.
+
+- `Content-Type: application/pdf`, `Content-Disposition: attachment`.
+  한글 파일명이라 `filename*=UTF-8''발주서_{poNo}.pdf`(RFC 5987)로 보낸다.
+- 금액·수량·치수는 저장된 값을 그대로 적는다. 품목 치수·이름은 발주 시점의 규격 스냅숏이라
+  이후 규격을 수정해도 이미 만든 발주서 PDF의 내용은 달라지지 않는다.
+- 상세 화면에 없는 납품지(센터명·주소·입고 가능 시간·연락처)를 포함한다. 공급사에 보내는 문서라서다.
+- 값이 없는 칸은 빈칸 대신 —로 적는다. 공급사가 없으면 "미지정"이다.
+- 품목이 한 쪽을 넘으면 쪽을 나누고 표 머리를 다시 그린다.
+- 한글은 OS 폰트에 기대지 않고 번들한 나눔고딕(OFL, `resources/fonts`)을 임베드한다.
+  PDFBox가 사용한 글자만 서브셋으로 넣어 결과 파일은 작다. 컨테이너에 폰트를 따로 설치하지 않는다.
+- 생성에 실패하면 500 INTERNAL_ERROR로 평소의 오류 Envelope를 반환한다.
+
 ## COMMON-API-03: 새로고침 정책
 
 `GET /api/v1/warehouses/{warehouseId}/refresh-policy` (VIEWER 이상). data:

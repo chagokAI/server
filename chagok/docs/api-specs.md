@@ -30,6 +30,7 @@
 
 - [x] **HIST-API-01** — `GET /api/v1/warehouses/{warehouseId}/purchase-orders` — from, to, keyword?, status?, 페이지; sort 기본 createdAt,desc / deliveryDate → 200 PurchaseOrderPage(목록+summary) / HIST-01~03
 - [x] **HIST-API-02** — `GET /api/v1/warehouses/{warehouseId}/purchase-orders/{purchaseOrderId}` — 없음 → 200 PurchaseOrder / HIST-04~06
+- [x] **HIST-API-03** — `GET /api/v1/warehouses/{warehouseId}/purchase-orders/{purchaseOrderId}/pdf` — 없음 → 200 application/pdf(첨부 파일) / HIST-04 상세의 PDF 다운로드
 
 - [x] **NOTI-API-01** — `GET /api/v1/warehouses/{warehouseId}/notifications` — category?, unreadOnly?, 페이지; sort createdAt,desc → 200 NotificationPage / NOTI-01~02
 - [x] **NOTI-API-02** — `PATCH /api/v1/warehouses/{warehouseId}/notifications/{notificationId}/read` — 없음 → 200 Notification / NOTI-03~04
