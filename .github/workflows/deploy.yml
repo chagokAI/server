@@ -78,6 +78,7 @@ jobs:
           LIVE_FEEDER_ENABLED: ${{ vars.LIVE_FEEDER_ENABLED || 'false' }}
           LIVE_ALLOW_REMOTE_DATABASE: ${{ vars.LIVE_ALLOW_REMOTE_DATABASE || 'false' }}
           LIVE_RESET_ENABLED: ${{ vars.LIVE_RESET_ENABLED || 'false' }}
+          LIVE_CONTINUOUS_ENABLED: ${{ vars.LIVE_CONTINUOUS_ENABLED || 'false' }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
         run: |

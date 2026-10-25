@@ -29,6 +29,10 @@ public class DlAnalysisReplayFeeder {
     private final java.util.Map<UUID, String> running = new java.util.concurrent.ConcurrentHashMap<>();
     // 센터별 잠금. 느린 브로커 확인은 같은 센터의 정지만 기다리게 하고, 상태 조회·다른 센터 조작은 막지 않는다.
     private final java.util.Map<UUID, Object> locks = new java.util.concurrent.ConcurrentHashMap<>();
+    // 연속 재생(LIVE_CONTINUOUS_ENABLED): 표본이 있는 센터를 서버 시작 때 켜고, 화면 세션이 끝나도 멈추지 않는다
+    static final String CONTINUOUS_OWNER = "continuous";
+    @Value("${chagok.live.continuous.enabled:false}") private boolean continuous;
+    private final java.util.Set<UUID> continuousWarehouses = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     public DlAnalysisReplayFeeder(DlAnalysisReplaySource source, DlAnalysisResultProducer producer,
             DlAnalysisItemEventRepository events, EntityManager entityManager,
@@ -51,10 +55,22 @@ public class DlAnalysisReplayFeeder {
         }
     }
 
+    /** 연속 재생이면 표본이 있는 센터를 바로 켠다. 운영자가 화면에서 멈추면 그 센터는 멈춘다 */
+    @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
+    public void startContinuous() {
+        if (!continuous) return;
+        for (UUID warehouseId : source.warehousesWithSamples()) {
+            continuousWarehouses.add(warehouseId);
+            setRunning(warehouseId, true, CONTINUOUS_OWNER);
+            log.info("라이브 연속 재생 시작: warehouseId={}", warehouseId);
+        }
+    }
+
     /** 기능을 켜도 기본은 정지다. 같은 센터의 투입과 같은 잠금으로 정지 응답 뒤 새 발행을 막는다. */
     public void setRunning(UUID warehouseId, boolean enabled, String ownerSession) {
         synchronized (lock(warehouseId)) {
-            if (enabled) running.put(warehouseId, ownerSession);
+            // 연속 재생 센터는 화면에서 다시 켜도 세션 소유로 바꾸지 않는다(세션이 끝나도 계속 재생)
+            if (enabled) running.put(warehouseId, continuousWarehouses.contains(warehouseId) ? CONTINUOUS_OWNER : ownerSession);
             else running.remove(warehouseId);
         }
     }

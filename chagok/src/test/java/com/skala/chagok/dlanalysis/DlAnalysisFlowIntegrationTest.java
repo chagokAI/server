@@ -175,6 +175,8 @@ class DlAnalysisFlowIntegrationTest {
     private DlAnalysisResultListener resultListener;
 
     @Autowired private DlAnalysisReplaySource replaySource;
+    @Autowired private org.springframework.transaction.support.TransactionTemplate transactionTemplate;
+    @Autowired private com.skala.chagok.global.config.ChagokProperties chagokProperties;
     @Autowired private DlAnalysisResultProducer resultProducer;
     @Autowired private DlAnalysisItemEventRepository eventRepository;
     @Autowired private jakarta.persistence.EntityManager entityManager;
@@ -261,7 +263,8 @@ class DlAnalysisFlowIntegrationTest {
 
     @AfterEach
     void deleteInsertedRows() {
-        jdbc.update("delete from dl_measurement_sample where event_id in (select event_id from item_event where warehouse_id=?)", warehouseId);
+        jdbc.update("delete from dl_measurement_sample where warehouse_id=? or event_id in (select event_id from item_event where warehouse_id=?)",
+                warehouseId, warehouseId);
         jdbc.update("delete from procurement_proposal_item where proposal_id in (select id from procurement_proposal where warehouse_id=?)", warehouseId);
         jdbc.update("delete from procurement_proposal where warehouse_id=?", warehouseId);
         jdbc.update("delete from cost_forecast where warehouse_id=?", warehouseId);
@@ -556,6 +559,49 @@ class DlAnalysisFlowIntegrationTest {
         await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> assertThat(movementCount()).isEqualTo(2));
         assertThat(stock(boxSpecId)).isEqualTo(98);
         liveReset.reset(warehouseId);
+    }
+
+    @Test void continuousCleanupRemovesOnlyAggregatedOldLiveRows() {
+        // 3일 전 라이브(집계 있음) → 지움, 3일 전 라이브(집계 없음)·3일 전 일반 출고·오늘 라이브 → 남김
+        var zone = java.time.ZoneId.of("Asia/Seoul");
+        var old = java.time.LocalDate.now(zone).minusDays(3);
+        var oldAt = java.sql.Timestamp.from(old.atTime(12, 0).atZone(zone).toInstant());
+        var otherWarehouse = UUID.randomUUID();
+        jdbc.update("insert into warehouse (id, name) values (?, ?)", otherWarehouse, "정리 시험 센터");
+        String gone = "live-" + UUID.randomUUID(), unaggregated = "live-" + UUID.randomUUID(),
+                ordinary = "hist-" + UUID.randomUUID(), today = "live-" + UUID.randomUUID();
+        jdbc.update("insert into item_event(event_id,occurred_at,warehouse_id,status) values (?,?,?,'SUCCEEDED')", gone, oldAt, warehouseId);
+        jdbc.update("insert into item_event(event_id,occurred_at,warehouse_id,status) values (?,?,?,'SUCCEEDED')", unaggregated, oldAt, otherWarehouse);
+        jdbc.update("insert into item_event(event_id,occurred_at,warehouse_id,status) values (?,?,?,'SUCCEEDED')", ordinary, oldAt, warehouseId);
+        jdbc.update("insert into item_event(event_id,occurred_at,warehouse_id,status) values (?,now(),?,'SUCCEEDED')", today, warehouseId);
+        jdbc.update("insert into item_event_daily(warehouse_id,day,status,source,shipments) values (?,?,'SUCCEEDED','live',1)", warehouseId, old);
+        try {
+            new com.skala.chagok.live.LiveContinuousCleaner(jdbc, transactionTemplate, chagokProperties, 2).cleanup();
+            assertThat(jdbc.queryForList("select event_id from item_event where event_id in (?,?,?,?)", String.class,
+                    gone, unaggregated, ordinary, today)).containsExactlyInAnyOrder(unaggregated, ordinary, today);
+        } finally {
+            jdbc.update("delete from item_event where event_id in (?,?,?,?)", gone, unaggregated, ordinary, today);
+            jdbc.update("delete from item_event_daily where warehouse_id=? and day=?", warehouseId, old);
+            jdbc.update("delete from warehouse where id=?", otherWarehouse);
+        }
+    }
+
+    @Test void replayReadsSamplesByTheirOwnWarehouseWithoutTheOriginalEvent() {
+        // 출고 원본 없이 표본의 warehouse_id 만으로 이 센터 표본을 고른다(원본 정리·DB 이관 뒤에도 재생)
+        String orphan = "sample-" + UUID.randomUUID();
+        jdbc.update("""
+                insert into dl_measurement_sample(event_id,run,bundle_id,expected_barcode,dl_status,dl_barcode,
+                    size_type,width_cm,depth_cm,height_cm,volume_cm3,latency_ms,measured_at,warehouse_id)
+                values (?,1,'synthetic',?,'known',?,'measured',23.9,8.0,3.4,650.1,10,?,?)
+                """, orphan, BARCODE, BARCODE, java.sql.Timestamp.from(Instant.now()), warehouseId);
+        try {
+            var sample = replaySource.next(null, warehouseId).orElseThrow();
+            assertThat(sample.cursor().eventId()).isEqualTo(orphan);
+            assertThat(sample.warehouseId()).isEqualTo(warehouseId);
+            assertThat(replaySource.next(null, UUID.randomUUID())).isEmpty();
+        } finally {
+            jdbc.update("delete from dl_measurement_sample where event_id=?", orphan);
+        }
     }
 
     @Test void resetUndoesOnlyLiveConsumptionAndIsIdempotent() throws Exception {
