@@ -151,6 +151,7 @@ public class BoxSpecService {
                 || purchaseOrderItemRepository.existsByBoxSpecId(boxSpecId)
                 || procurementProposalItemRepository.existsByBoxSpecId(boxSpecId)
                 || itemEventRepository.existsByBoxSpecId(boxSpecId)
+                || itemEventRepository.existsDailyByBoxSpecId(boxSpecId)
                 || movements.existsByBoxSpecId(boxSpecId);
 
         if (active || hasHistory || onHandQty > 0) {

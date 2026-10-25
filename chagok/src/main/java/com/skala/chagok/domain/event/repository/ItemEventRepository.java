@@ -17,6 +17,9 @@ public interface ItemEventRepository extends JpaRepository<ItemEvent, ItemEventI
 
     boolean existsByBoxSpecId(UUID boxSpecId);
 
+    @Query(value = "select exists(select 1 from item_event_daily where box_spec_id = :boxSpecId)", nativeQuery = true)
+    boolean existsDailyByBoxSpecId(UUID boxSpecId);
+
     int countByWarehouseIdAndStatus(UUID warehouseId, String status);
 
     @EntityGraph(attributePaths = {"product", "boxSpec"})

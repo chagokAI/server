@@ -163,6 +163,15 @@ class ReadDatabaseTests {
         assertThat(failures).allSatisfy(point -> assertThat(point.value()).isEqualByComparingTo("0"));
     }
 
+    @Test void archivedBoxReferencesRemainVisibleAfterRawHistoryIsGone() {
+        UUID box = UUID.randomUUID();
+        jdbc.update("insert into item_event_daily (warehouse_id, day, box_spec_id, status, source, shipments) values (?, date '2026-09-01', ?, 'SUCCEEDED', 'hist', 50)", warehouseId, box);
+        var events = repositories.getRepository(ItemEventRepository.class);
+        assertThat(events.existsByBoxSpecId(box)).isFalse();
+        assertThat(events.existsDailyByBoxSpecId(box)).isTrue();
+        assertThat(events.existsDailyByBoxSpecId(UUID.randomUUID())).isFalse();
+    }
+
     @Test void todayUsesFreshRawInsteadOfDailySnapshotAndExcludesFutureEvents() {
         var today = LocalDate.now(properties.timezone());
         var from = today.atStartOfDay(properties.timezone()).toInstant();
