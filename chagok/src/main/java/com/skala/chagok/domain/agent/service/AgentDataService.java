@@ -61,6 +61,11 @@ public class AgentDataService {
         return repository.purchaseOrders(warehouseId, from, to, properties.timezone());
     }
 
+    public List<InboundOrderItem> inboundOrders(UUID warehouseId) {
+        requireWarehouse(warehouseId);
+        return repository.inboundOrders(warehouseId);
+    }
+
     public List<ProposalItem> proposals(UUID warehouseId, int limit) {
         requireWarehouse(warehouseId);
         if (limit < 1 || limit > 100) throw BusinessException.invalidField("limit", "1~100 사이여야 합니다.");

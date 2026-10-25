@@ -115,6 +115,18 @@ public class AgentDataRepository {
                         rs.getLong("amount")));
     }
 
+    public List<InboundOrderItem> inboundOrders(UUID warehouseId) {
+        String sql = "select i.box_spec_id, b.code, i.qty, po.po_no, po.status, po.requested_delivery_date, pp.target_month "
+                + "from purchase_order po join purchase_order_item i on i.purchase_order_id = po.id "
+                + "join box_spec b on b.id = i.box_spec_id left join procurement_proposal pp on pp.id = po.proposal_id "
+                + "where po.warehouse_id = :wh and po.status in ('APPROVED', 'IN_TRANSIT') and i.qty > 0 "
+                + "order by po.requested_delivery_date nulls last, po.po_no, b.code";
+        return jdbc.query(sql, Map.of("wh", warehouseId), (rs, i) -> new InboundOrderItem(rs.getObject("box_spec_id", UUID.class),
+                rs.getString("code"), rs.getLong("qty"), rs.getString("po_no"), rs.getString("status"),
+                rs.getDate("requested_delivery_date") == null ? null : rs.getDate("requested_delivery_date").toLocalDate(),
+                trim(rs.getString("target_month"))));
+    }
+
     public List<ProposalItem> proposals(UUID warehouseId, int limit) {
         String sql = "select id, target_month, generated_at, summary->>'jobId' as job_id, summary->>'totalAmount' as total, "
                 + "(summary->'newSpecs')::text as new_specs, (summary->'forecast')::text as forecast "

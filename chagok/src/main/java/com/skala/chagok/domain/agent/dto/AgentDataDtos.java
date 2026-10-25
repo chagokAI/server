@@ -41,6 +41,13 @@ public final class AgentDataDtos {
                                     LocalDate requestedDeliveryDate, boolean fromProposal, String proposalTargetMonth,
                                     String supplier, long amountKrw) {}
 
+    /**
+     * 아직 입고되지 않은 발주(승인·배송 중)의 규격별 수량. 에이전트가 다음 달 시작 재고에 더한다.
+     * proposalTargetMonth = 그 발주를 만든 제안서의 대상 월(제안과 무관한 발주는 null). 같은 대상 월 제안의 발주는 에이전트가 뺀다
+     */
+    public record InboundOrderItem(UUID boxSpecId, String code, long qty, String poNo, String status,
+                                   LocalDate requestedDeliveryDate, String proposalTargetMonth) {}
+
     public record ProposalItem(UUID proposalId, String targetMonth, Instant generatedAt, String jobId,
                                Long totalAmount, Object newSpecs, Object forecast) {}
 

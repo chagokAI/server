@@ -69,6 +69,12 @@ public class AgentDataController {
         return responses.of(service.purchaseOrders(warehouseId, from, to));
     }
 
+    /** 아직 입고되지 않은 발주(승인·배송 중)의 규격별 수량 */
+    @GetMapping("/warehouses/{warehouseId}/inbound-orders")
+    public ApiResponse<List<InboundOrderItem>> inboundOrders(@PathVariable UUID warehouseId) {
+        return responses.of(service.inboundOrders(warehouseId));
+    }
+
     @GetMapping("/warehouses/{warehouseId}/procurement-proposals")
     public ApiResponse<List<ProposalItem>> proposals(@PathVariable UUID warehouseId,
                                                      @RequestParam(defaultValue = "12") int limit) {

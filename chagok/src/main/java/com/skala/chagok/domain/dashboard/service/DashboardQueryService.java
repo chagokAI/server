@@ -12,9 +12,13 @@ import com.skala.chagok.domain.procurement.service.ProcurementQueryService;
 import com.skala.chagok.global.config.ChagokProperties;
 import com.skala.chagok.global.web.*;
 import java.math.*;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.YearMonth;
+import java.time.ZonedDateTime;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,10 +30,12 @@ public class DashboardQueryService {
     private final WarehouseQueryGuard warehouses;
     private final ChagokProperties properties;
     private final BoxSizeClassifier sizes;
+    private final NamedParameterJdbcTemplate jdbc;
+    private final Clock clock;
 
     public DashboardResponse get(UUID warehouseId, String targetMonth) {
         warehouses.require(warehouseId);
-        YearMonth current = YearMonth.now(properties.timezone());
+        YearMonth current = YearMonth.now(clock.withZone(properties.timezone()));
         String month = QueryValues.month(targetMonth, current.plusMonths(1)).toString();
         List<BoxSpec> specs = boxes.findByWarehouseIdAndIsActiveTrue(warehouseId);
         var summary = inventory.summarize(warehouseId);
@@ -79,15 +85,95 @@ public class DashboardQueryService {
                         : BigDecimal.valueOf(e.getValue()).multiply(BigDecimal.valueOf(100))
                         .divide(BigDecimal.valueOf(totalDemand), 2, RoundingMode.HALF_UP))).toList();
         // 다음 달 말 예상 재고만 계산한다. 다른 대상 월은 중간 월 입출고를 알 수 없어 null이다.
-        Long projected = month.equals(current.plusMonths(1).toString()) && demand != null && proposal.result().totalQty() != null
+        var projection = month.equals(current.plusMonths(1).toString()) && demand != null && proposal.result().totalQty() != null
                 && specs.stream().allMatch(s -> s.getOnHandQty() != null)
-                ? summary.totalOnHandQty() + proposal.result().totalQty() - demand : null;
+                ? project(warehouseId, YearMonth.parse(month), summary.totalOnHandQty(), proposal.result(), demand,
+                        safety.size() == specs.size() ? safety.values().stream().mapToLong(Integer::longValue).sum() : null,
+                        stocks, demandBySize)
+                : null;
+        Long projected = projection == null ? null : projection.endQty();
         return new DashboardResponse(current.toString(), month, summary, stockBySize, shortages, projected,
                 new DashboardResponse.DemandForecast(proposal, demand, distribution),
                 forecasts.latestCost(warehouseId, current.toString()), referenceCost,
                 new DashboardResponse.PlanMetrics(plan.basis(), plan.boxCostKrw(), plan.monthlySavingsKrw(),
-                        proposal.result() == null ? null : proposal.result().totalAmountKrw(), plan.savingsBasis(), unknownSafety));
+                        proposal.result() == null ? null : proposal.result().totalAmountKrw(), plan.savingsBasis(), unknownSafety),
+                projection);
     }
+
+    /**
+     * 다음 달 말 예상 재고. 지금 재고를 다음 달 1일 재고로 쓰면 이번 달 남은 기간의 소모만큼 많게 나온다.
+     * 남은 소모는 다음 달 일평균으로 추정하고, 아직 입고되지 않은 다른 발주는 더한다. 다음 달 제안으로 만든 발주는
+     * 제안 주문 수량에 이미 들어 있으므로 입고 예정에서 빼고, 이미 입고된 만큼은 지금 재고에 들어 있어 주문 수량에서 뺀다.
+     */
+    private DashboardResponse.ProjectedStock project(UUID warehouseId, YearMonth month, long onHand, ProposalResponse proposal,
+                                                     long demand, Long safety, Map<String, long[]> stockBySize,
+                                                     Map<String, Long> demandBySize) {
+        ZonedDateTime now = ZonedDateTime.now(clock.withZone(properties.timezone()));
+        ZonedDateTime start = month.atDay(1).atStartOfDay(properties.timezone());
+        BigDecimal days = BigDecimal.valueOf(Math.max(0, Duration.between(now, start).toMinutes()))
+                .divide(BigDecimal.valueOf(24 * 60), 2, RoundingMode.HALF_UP);
+        long consume = BigDecimal.valueOf(demand).multiply(days)
+                .divide(BigDecimal.valueOf(month.lengthOfMonth()), 0, RoundingMode.HALF_UP).longValue();
+        var params = Map.<String, Object>of("wh", warehouseId, "month", month.toString());
+        long inbound = qty(jdbc.queryForObject("""
+                select coalesce(sum(i.qty), 0) from purchase_order po join purchase_order_item i on i.purchase_order_id = po.id
+                left join procurement_proposal pp on pp.id = po.proposal_id
+                where po.warehouse_id = :wh and po.status in ('APPROVED', 'IN_TRANSIT')
+                    and (pp.target_month is null or trim(pp.target_month) <> :month)
+                """, params, Long.class));
+        long received = proposal.id() == null ? 0 : qty(jdbc.queryForObject("""
+                select coalesce(sum(i.qty), 0) from purchase_order po join purchase_order_item i on i.purchase_order_id = po.id
+                where po.proposal_id = :proposal and po.status = 'RECEIVED'
+                """, Map.of("proposal", proposal.id()), Long.class));
+        long order = Math.max(0, proposal.totalQty() - received);
+        return new DashboardResponse.ProjectedStock(onHand, consume, inbound, order, demand, safety,
+                onHand - consume + inbound + order - demand, days,
+                projectBySize(warehouseId, month, proposal, days, stockBySize, demandBySize));
+    }
+
+    /** 크기별 같은 식. 입고 예정·이미 입고된 제안 발주는 규격 크기로 묶고, 남은 주문은 제안 품목 크기로 묶는다 */
+    private List<DashboardResponse.SizeProjection> projectBySize(UUID warehouseId, YearMonth month, ProposalResponse proposal,
+                                                                 BigDecimal days, Map<String, long[]> stockBySize,
+                                                                 Map<String, Long> demandBySize) {
+        Map<String, Long> inbound = bySize("""
+                select b.size_class as size, coalesce(sum(i.qty), 0) as qty from purchase_order po
+                join purchase_order_item i on i.purchase_order_id = po.id join box_spec b on b.id = i.box_spec_id
+                left join procurement_proposal pp on pp.id = po.proposal_id
+                where po.warehouse_id = :wh and po.status in ('APPROVED', 'IN_TRANSIT')
+                    and (pp.target_month is null or trim(pp.target_month) <> :month)
+                group by b.size_class
+                """, Map.of("wh", warehouseId, "month", month.toString()));
+        Map<String, Long> received = proposal.id() == null ? Map.of() : bySize("""
+                select b.size_class as size, coalesce(sum(i.qty), 0) as qty from purchase_order po
+                join purchase_order_item i on i.purchase_order_id = po.id join box_spec b on b.id = i.box_spec_id
+                where po.proposal_id = :proposal and po.status = 'RECEIVED' group by b.size_class
+                """, Map.of("proposal", proposal.id()));
+        Map<String, Long> ordered = new HashMap<>();
+        proposal.items().forEach(item -> ordered.merge(sizeClass(item.boxSpec().sizeClass()),
+                (long) (item.proposedQty() == null ? 0 : item.proposedQty()), Long::sum));
+        Set<String> keys = new TreeSet<>(sizeOrder());
+        keys.addAll(stockBySize.keySet()); keys.addAll(demandBySize.keySet()); keys.addAll(ordered.keySet()); keys.addAll(inbound.keySet());
+        return keys.stream().map(size -> {
+            long start = stockBySize.containsKey(size) ? stockBySize.get(size)[0] : 0;
+            long use = demandBySize.getOrDefault(size, 0L);
+            long consume = BigDecimal.valueOf(use).multiply(days)
+                    .divide(BigDecimal.valueOf(month.lengthOfMonth()), 0, RoundingMode.HALF_UP).longValue();
+            long in = inbound.getOrDefault(size, 0L);
+            long order = Math.max(0, ordered.getOrDefault(size, 0L) - received.getOrDefault(size, 0L));
+            return new DashboardResponse.SizeProjection(size, start, consume, in, order, use, start - consume + in + order - use);
+        }).toList();
+    }
+
+    private Map<String, Long> bySize(String sql, Map<String, ?> params) {
+        Map<String, Long> out = new HashMap<>();
+        jdbc.query(sql, params, rs -> {
+            String size = rs.getString("size");
+            out.merge(size == null || size.isBlank() ? "OTHER" : size.trim(), rs.getLong("qty"), Long::sum);
+        });
+        return out;
+    }
+
+    private static long qty(Long value) { return value == null ? 0 : value; }
 
     private static long qty(Integer value) { return value == null ? 0 : value; }
     private static String sizeClass(Character value) { return value == null ? "OTHER" : value.toString(); }
