@@ -26,6 +26,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+    // 발주서 PDF. HTML→PDF 변환기는 유지보수가 끊겨 있어 PDFBox로 직접 그린다.
+    implementation 'org.apache.pdfbox:pdfbox:3.0.7'
     compileOnly 'org.projectlombok:lombok'
     runtimeOnly 'org.postgresql:postgresql'
     annotationProcessor 'org.projectlombok:lombok'
