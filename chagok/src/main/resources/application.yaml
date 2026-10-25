@@ -85,6 +85,11 @@ chagok:
     reset:
       enabled: ${LIVE_RESET_ENABLED:false}
       cron: "${LIVE_RESET_CRON:0 */30 * * * *}"
+    # 연속 재생: 표본이 있는 센터를 세션 없이 계속 재생하고(초기화 안 함), 일별 집계가 끝난 라이브 원본을 정리한다
+    continuous:
+      enabled: ${LIVE_CONTINUOUS_ENABLED:false}
+      raw-keep-days: ${LIVE_CONTINUOUS_RAW_KEEP_DAYS:2}
+      cleanup-cron: "${LIVE_CONTINUOUS_CLEANUP_CRON:0 40 0 * * *}"
   dl:
     image-root: ${DL_IMAGE_ROOT:./data/captures}
   kafka:

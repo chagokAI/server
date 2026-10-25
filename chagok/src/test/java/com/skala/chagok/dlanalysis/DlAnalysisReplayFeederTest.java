@@ -18,6 +18,31 @@ class DlAnalysisReplayFeederTest {
         feeder.tick();
         verifyNoInteractions(source, producer, events, entities);
     }
+    // 연속 재생: 표본이 있는 센터를 시작 때 켜고, 화면 세션이 끝나도 멈추지 않는다. 운영자가 멈추면 멈춘다.
+    @Test void continuousModeStartsSampleWarehousesAndIgnoresSessionExpiry() {
+        var source = mock(DlAnalysisReplaySource.class);
+        var warehouse = UUID.randomUUID();
+        when(source.warehousesWithSamples()).thenReturn(java.util.List.of(warehouse));
+        var feeder = new DlAnalysisReplayFeeder(source, mock(DlAnalysisResultProducer.class), mock(DlAnalysisItemEventRepository.class),
+                mock(EntityManager.class), "jdbc:postgresql://localhost/test", false);
+        org.springframework.test.util.ReflectionTestUtils.setField(feeder, "continuous", true);
+        feeder.startContinuous();
+        assertThat(feeder.isRunning(warehouse)).isTrue();
+        feeder.setRunning(warehouse, true, "operator-session");      // 화면에서 다시 켜도
+        feeder.stopOwnedBy(warehouse, "operator-session");           // 그 세션이 끝나도 계속
+        assertThat(feeder.isRunning(warehouse)).isTrue();
+        feeder.setRunning(warehouse, false, "operator-session");     // 운영자가 멈추면 멈춘다
+        assertThat(feeder.isRunning(warehouse)).isFalse();
+    }
+
+    @Test void continuousModeIsOffByDefault() {
+        var source = mock(DlAnalysisReplaySource.class);
+        var feeder = new DlAnalysisReplayFeeder(source, mock(DlAnalysisResultProducer.class), mock(DlAnalysisItemEventRepository.class),
+                mock(EntityManager.class), "jdbc:postgresql://localhost/test", false);
+        feeder.startContinuous();
+        verifyNoInteractions(source);
+    }
+
     // 발행 확인에 60ms가 걸려도 투입 주기에 더해지지 않아야 한다. 잘못된 fixedDelay를 잡는다.
     @Test void scheduledReplayKeepsRoughlySixItemsPerSecondDespiteBrokerLatency() throws Exception {
         var source = mock(DlAnalysisReplaySource.class);
