@@ -263,6 +263,9 @@ CurrentUserProvider는 세션 사용자 ID로 본인을 조회한다. 명시적�
   TILTED 매칭은 충전율과 관계없이 REVIEW이며 충전율은 부피비 그대로다. 수동 지정(PUT box-match)은 기존 판정만 쓴다.
   시안 박스 9종·상품 7종 기준으로는 기울여야만 들어가는 조합이 없어 결과가 바뀌지 않았다.
 - POST product-matches/recalculate: 매칭 박스가 없는 활성 상품에 1순위를 일괄 적용한다. DB에 직접 들어온 상품 채우기용.
+- refreshExisting=true이면 기존 자동 매칭까지 현재 활성 박스 기준으로 갱신한다. 치수에 맞는 박스 중
+  충진율이 가장 높은 것을 고르며 재고는 보지 않는다. 유효한 수동 지정은 보존한다.
+- 박스 등록·활성 상태/치수 변경, 제안 규격 등록, 맞춤 발주 승인으로 활성 규격이 바뀌면 자동 갱신한다.
   응답 `{targetCount, matchedCount, reviewCount, unmatchedCount}`. 이미 매칭된 상품은 건드리지 않아 반복 호출해도 같다.
 - 기준 변경 후 기존 상태 재판정: 상태는 다시 매칭할 때만 계산되므로 기준만 바꾸면 옛 상태가 남는다.
   `chagok.matching.resync-statuses-on-startup=true`(환경변수 `MATCH_STATUS_RESYNC_ON_STARTUP`, 기본 false)로 기동하면
@@ -271,9 +274,17 @@ CurrentUserProvider는 세션 사용자 ID로 본인을 조회한다. 명시적�
 
 ## 신규 규격·안전 재고 정책
 
-규격 생성에 unitPriceKrw가 필수다. isActive는 생략 시 true, initialOnHandQty와 safetyQty는 생략 시 0이다.
-targetQty는 선택이며 없으면 stockLevelPct=null이다. 새 규격은 alertEnabled=true로 생성한다.
-재고 수준은 onHandQty/targetQty×100(최대 100), 주의 판정은 소진일≤공급사 리드타임+여유일이다.
+규격 생성에 unitPriceKrw가 필수다. isActive는 생략 시 true, initialOnHandQty는 생략 시 0이다.
+safetyQty 생략 시 기본 안전 일수 7일로 자동 계산한다. targetQty도 생략하면 자동 계산한다.
+안전 재고는 일평균 예상 사용량×안전 일수(올림), 목표 재고는 다음 납품일까지 예상 사용량+안전 재고다.
+양쪽 모두 직접 설정한 수량(0 포함)을 우선하고, 자동 계산의 사용량 근거가 없으면 null이다.
+납품일은 규격별 APPROVED/IN_TRANSIT 발주 중 미입고 잔량이 있고 오늘 이후인 가장 가까운 날이다.
+완료·반려·초안·지연된 날짜는 예정 수량으로 가정하지 않는다. 납품일이 없으면 운영 계획상 5일을 가정한다
+(`chagok.inventory.planning-lead-time-days`). DB 공급사 lead_time_days는 바꾸지 않는다.
+자동 계산값은 DB 수량으로 저장하지 않으며 조회할 때 실제 현재고·날짜·납품일을 반영한다.
+새 규격은 alertEnabled=true로 생성한다.
+재고 수준은 onHandQty/targetQty×100(최대 100), 주의 판정은 소진일≤납기까지 일수+여유일이다.
+요약 카드의 기본 보유일수 목표도 12일(가정 납기 5일+기본 안전 7일)로 맞춘다.
 활성 규격·참조·재고·입고/실사 이력이 있으면 삭제할 수 없다.
 
 ## 박스 규격 재질·크기 분류·삭제 불가 사유
@@ -295,10 +306,13 @@ PATCH box-inventories/{id}/policy:
 {"expectedVersion": 0, "safetyDays": 7, "alertEnabled": true, "targetQty": 2000}
 ```
 
-safetyQty, safetyDays(1~366), alertEnabled, targetQty 중 하나 이상 필요하다.
-safetyQty를 전달하면 해당 수량을 저장한다. 일수만 전달하면 이번 달 저장 제안서의 품목별 월 참고 수량×일수÷월 일수(올림)으로 계산한다.
-근거가 없으면 409이며 safetyQty를 직접 입력할 수 있다. 반올림한 일평균 표시값을 계산에 재사용하지 않는다.
-안전 재고 수량은 정책 저장 시점의 참고값으로 계산하며 이후 배치에서 자동으로 다시 설정하지 않는다.
+safetyQty, safetyDays(1~366), alertEnabled, targetQty, automaticTarget=true 중 하나 이상 필요하다.
+safetyQty를 전달하면 고정 수량을 저장한다. 일수만 전달하면 고정 수량을 해제하고 일수 기준 자동 계산을 사용한다.
+automaticTarget=true는 고정 목표 수량을 해제한다. targetQty와 동시에 전달할 수 없다.
+반올림한 일평균 표시값을 계산에 재사용하지 않고 같은 제안서의 원본 월 수량으로 올림한다.
+사용 계획은 이번 달 승인 AI 제안서를 우선하며 usagePlan 전체 규격을 읽는다. 없으면 최신 참고 계산을 사용한다.
+응답의 configuredSafetyQty/configuredTargetQty는 직접 저장된 수량이고, safetyQty/targetQty는 화면에 적용할 수량이다.
+planningDays, nextDeliveryDate로 목표 재고의 날짜 근거를 제공한다.
 응답 dailyUsage는 최신 제안의 소수 4자리 참고 일평균이며 실제 박스 소모량이 아니다.
 usageSource=REFERENCE_FORECAST/NOT_AVAILABLE, usageDataAsOf로 기준을 구분한다. 일평균·주간 합계는 동일한 제안 버전을 사용한다.
 알림이 켜진 상태에서 안전 재고 미만으로 진입하거나 부족 상태에서 알림을 다시 켜면 센터 사용자의 재고 알림을 저장한다.
@@ -334,9 +348,15 @@ GET box-inventories/{id}/movements는 createdAt 내림차순·ID 오름차순 �
 POST purchase-orders/from-proposal: {proposalId, requestedDeliveryDate?}
 
 - 양수 제안 수량만 공급사별 PENDING 발주서로 분리하고 당시 규격·저장 단가를 보존한다.
-- 새 생성은 201, 같은 제안의 재요청은 기존 DraftGroupResponse를 200으로 반환한다.
+- 새 발주서 생성은 201, 기존 발주서만 반환하거나 누락 품목을 기존 초안에 추가하면 200이다.
+- 승인된 제안의 CUSTOM_SPEC도 저장 견적(유팩·치수·단가)을 확인해 포함한다. 공급사는 센터의 유팩을
+  사용하며, 없으면 해당 공급사를 등록한다. 여러 개면 임의 선택하지 않고 409다.
+- 신규 맞춤 규격은 초안에서 isCustom=true, isActive=false, 재고 0으로 등록한다.
+- 기존 초안에 빠져 있던 맞춤 품목도 재요청 시 추가한다. 기존 품목·수정 수량·처리된 발주서는 보존한다.
 - 수량·활성 규격·공급사·저장 단가가 없으면 409다. 수량 전체가 0이어도 발주서를 만들지 않는다.
-- 납품일 생략 시 오늘+공급사 리드타임을 사용한다.
+- 납품일 생략 시 오늘+공급사 리드타임을 사용한다. 맞춤 공급사의 리드타임이 없으면 납품일을 비워
+  두고 관리자가 승인 전에 지정한다.
+- PurchaseOrderResponse.items[].isCustom으로 맞춤 품목을 구분한다.
 - DraftGroupResponse={proposalId, orders:[PurchaseOrderResponse]}다.
 
 PATCH purchase-orders/{id}: {expectedVersion, requestedDeliveryDate?, items?:[{boxSpecId,qty}], status?, decisionReason?}
@@ -346,6 +366,8 @@ PATCH purchase-orders/{id}: {expectedVersion, requestedDeliveryDate?, items?:[{b
 - 품목만 수정해도 발주서 version이 올라간다. 서버가 금액을 다시 계산한다.
 - PENDING→APPROVED/REJECTED, APPROVED→IN_TRANSIT만 허용한다. 반려 사유는 필수다.
 - RECEIVED는 입고 API를 통해서만 전이한다. 승인 시 공급사·규격 활성 여부를 다시 확인한다.
+- 제안서에서 생성한 비활성 맞춤 규격은 양수 수량으로 발주 승인할 때 활성화한다. 0개로 제외하거나
+  반려한 맞춤 규격은 비활성으로 남는다. 승인 시 재고를 늘리지 않으며 실제 입고에서만 반영한다.
 - 승인과 알림 저장은 같은 트랜잭션이다. 공급사에 실제로 전송했다는 의미는 아니다.
 - 수령 정보에는 receivingContact를 포함한다.
 
