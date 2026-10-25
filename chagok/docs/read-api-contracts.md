@@ -251,11 +251,11 @@ CurrentUserProvider는 세션 사용자 ID로 본인을 조회한다. 명시적�
 - code는 SKU다. DL 상품 조회는 barcode를 사용하며, barcode 없는 기존 행만 code와 비교한다.
 - 상품 치수 또는 박스 치수·활성 여부가 바뀌면 연결된 활성 상품의 적합 여부와 비율을 재검증한다.
 - 기존 박스가 부적합·비활성이면 박스·비율·수동 사유를 비우고 UNMATCHED로 바꾼다.
-- 적합하면 비율을 다시 계산한다. MANUAL은 MATCHED를 유지하고 그 외는 45% 이상 MATCHED, 미만 REVIEW다. 상태는 사람·에이전트가 나중에 보고 개선하기 위한 라벨이며 실제 포장 여부를 정하지 않는다.
+- 적합하면 비율을 다시 계산한다. MANUAL은 MATCHED를 유지하고 그 외는 50% 이상 MATCHED, 미만 REVIEW다. 상태는 사람·에이전트가 나중에 보고 개선하기 위한 라벨이며 실제 포장 여부를 정하지 않는다.
 - 상세의 matchCandidates 및 GET products/{id}/box-candidates는 적합한 활성 박스를 충전율 내림차순으로 반환한다.
 - 후보: boxSpec, fillRatePct, recommended(첫 후보), selected, source=DIMENSIONS. 회전을 허용한 치수 비교이며 AI 결과가 아니다.
 - 이름만 수정하면 매칭 결과를 바꾸지 않는다. 변경된 버전은 다음 요청의 expectedVersion으로 사용한다.
-- 상품 치수를 PATCH하면 MANUAL이 아닌 상품은 후보 1순위를 자동 저장한다(match_source=DIMENSIONS, 상태는 45% 기준).
+- 상품 치수를 PATCH하면 MANUAL이 아닌 상품은 후보 1순위를 자동 저장한다(match_source=DIMENSIONS, 상태는 50% 기준).
   들어가는 박스가 없으면 UNMATCHED. MANUAL은 박스를 바꾸지 않고 현재 박스만 재검증한다.
 - 자동 저장 박스는 같은 시점의 box-candidates 1순위(recommended)와 항상 같다.
 - 비스듬한 배치 정책 `chagok.matching.tilted`(기본 enabled=false, clearance-mm=0, 값은 팀 결정 전):
