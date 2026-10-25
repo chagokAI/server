@@ -275,7 +275,8 @@ class ReadDatabaseTests {
                 repositories.getRepository(PurchaseOrderItemRepository.class), repositories.getRepository(ProcurementProposalItemRepository.class),
                 repositories.getRepository(ItemEventRepository.class), mock(com.skala.chagok.domain.inventory.repository.InventoryMovementRepository.class),
                 mock(com.skala.chagok.domain.product.service.ProductMatchingService.class),
-                new com.skala.chagok.domain.box.service.BoxSizeClassifier(properties));
+                new com.skala.chagok.domain.box.service.BoxSizeClassifier(properties),
+                mock(com.skala.chagok.domain.product.service.ProductMatchService.class));
         var usages = new com.skala.chagok.domain.inventory.service.InventoryUsageReader(
                 repositories.getRepository(ProcurementProposalRepository.class),
                 repositories.getRepository(ProcurementProposalItemRepository.class), properties);

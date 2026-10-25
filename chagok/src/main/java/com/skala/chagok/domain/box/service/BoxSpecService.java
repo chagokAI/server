@@ -48,6 +48,7 @@ public class BoxSpecService {
     private final com.skala.chagok.domain.inventory.repository.InventoryMovementRepository movements;
     private final com.skala.chagok.domain.product.service.ProductMatchingService matching;
     private final BoxSizeClassifier sizeClassifier;
+    private final com.skala.chagok.domain.product.service.ProductMatchService matchRefresh;
 
     public BoxSpecResponse getBoxSpec(UUID warehouseId, UUID boxSpecId) {
         return BoxSpecResponse.from(findBoxSpec(warehouseId, boxSpecId),
@@ -89,7 +90,9 @@ public class BoxSpecService {
                 .stockUpdatedAt(java.time.Instant.now())
                 .description(request.description())
                 .build();
-        return BoxSpecResponse.from(boxSpecRepository.saveAndFlush(boxSpec));
+        boxSpecRepository.saveAndFlush(boxSpec);
+        if (Boolean.TRUE.equals(boxSpec.getIsActive())) matchRefresh.recalculateMatches(warehouseId, true);
+        return BoxSpecResponse.from(boxSpec, linkedProductCounts(warehouseId).getOrDefault(boxSpec.getId(), 0L));
     }
 
     @Transactional
@@ -127,6 +130,7 @@ public class BoxSpecService {
             productRepository.flush();
         }
         boxSpecRepository.flush();
+        if (dimensionsChanged || request.isActive() != null) matchRefresh.recalculateMatches(warehouseId, true);
         return BoxSpecResponse.from(boxSpec, linkedProductCounts(warehouseId).getOrDefault(boxSpecId, 0L));
     }
 
