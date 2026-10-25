@@ -5,6 +5,9 @@ import com.skala.chagok.domain.box.repository.BoxSpecRepository;
 import com.skala.chagok.domain.dashboard.dto.DashboardResponse;
 import com.skala.chagok.domain.inventory.service.InventoryService;
 import com.skala.chagok.domain.procurement.dto.ProposalResponse;
+import com.skala.chagok.domain.procurement.dto.CostForecastResponse;
+import com.skala.chagok.domain.procurement.dto.CostForecastResult;
+import com.skala.chagok.domain.procurement.dto.LatestResult;
 import com.skala.chagok.domain.procurement.dto.AgentPlanProjection;
 import com.skala.chagok.domain.box.service.BoxSizeClassifier;
 import com.skala.chagok.domain.inventory.dto.InventorySummary;
@@ -40,7 +43,19 @@ public class DashboardQueryService {
         List<BoxSpec> specs = boxes.findByWarehouseIdAndIsActiveTrue(warehouseId);
         var summary = inventory.summarize(warehouseId);
         var proposal = forecasts.latestProposal(warehouseId, month, "AUTO");
-        var plan = AgentPlanProjection.from(proposal.result(), sizes);
+        // 다음 달 제안서를 만들기 전(월말 전)에는 이번 달 제안서의 사용 계획·주문으로 대신 보여 준다(임시 표시, 기준 문구에 적는다)
+        String fallbackFrom = null;
+        if ((proposal == null || proposal.result() == null) && month.equals(current.plusMonths(1).toString())) {
+            var previous = forecasts.latestProposal(warehouseId, current.toString(), "AUTO");
+            if (previous != null && previous.result() != null) {
+                proposal = previous;
+                fallbackFrom = current.toString();
+            }
+        }
+        var plan = AgentPlanProjection.from(proposal == null ? null : proposal.result(), sizes);
+        String basisNote = fallbackFrom == null ? null
+                : Integer.parseInt(fallbackFrom.substring(5)) + "월 제안서 기준(" + Integer.parseInt(month.substring(5))
+                  + "월 제안서 생성 전 임시)";
         Long demand = plan.totalUsage();
         var referenceCost = forecasts.latestCost(warehouseId, month);
         Map<String, Integer> monthly = new HashMap<>();
@@ -95,10 +110,75 @@ public class DashboardQueryService {
         Long projected = projection == null ? null : projection.endQty();
         return new DashboardResponse(current.toString(), month, summary, stockBySize, shortages, projected,
                 new DashboardResponse.DemandForecast(proposal, demand, distribution),
-                forecasts.latestCost(warehouseId, current.toString()), referenceCost,
-                new DashboardResponse.PlanMetrics(plan.basis(), plan.boxCostKrw(), plan.monthlySavingsKrw(),
-                        proposal.result() == null ? null : proposal.result().totalAmountKrw(), plan.savingsBasis(), unknownSafety),
+                currentCost(warehouseId, current), targetCost(month, referenceCost, proposal == null ? null : proposal.result(), basisNote),
+                new DashboardResponse.PlanMetrics(basisNote == null ? plan.basis() : basisNote + " · " + plan.basis(),
+                        plan.boxCostKrw(), plan.monthlySavingsKrw(),
+                        proposal == null || proposal.result() == null ? null : proposal.result().totalAmountKrw(),
+                        plan.savingsBasis(), unknownSafety),
                 projection);
+    }
+
+    /**
+     * 이번 달 비용(포장비·절감). 승인된 AI 제안서가 있으면 포장비 = 그 제안서의 사용 계획 × 단가,
+     * 절감 = 본부 리포트의 이번 달 실제 절감(실제 박스 배정 기준, 30일 기준)으로 채운다. 없으면 참고 계산 비용 예측 그대로.
+     * 응답 형식은 참고 계산과 같아 화면은 그대로 읽는다
+     */
+    private LatestResult<CostForecastResponse> currentCost(UUID warehouseId, YearMonth current) {
+        var reference = forecasts.latestCost(warehouseId, current.toString());
+        var latest = forecasts.latestProposal(warehouseId, current.toString(), "AUTO");
+        var proposal = latest == null ? null : latest.result();
+        Long saving = actualSaving(warehouseId, current);
+        if (proposal == null && saving == null) return reference;
+        var plan = proposal == null ? null : AgentPlanProjection.from(proposal, sizes);
+        Long cost = plan != null && plan.boxCostKrw() != null ? plan.boxCostKrw() : forecastOf(reference, CostForecastResult::packagingCostKrw);
+        return merged(current.toString(), reference, proposal, cost,
+                saving != null ? saving : forecastOf(reference, CostForecastResult::packagingSavingsKrw),
+                forecastOf(reference, CostForecastResult::purchaseCostKrw), "AI 제안서 사용 계획 · 본부 리포트 실제 절감 기준");
+    }
+
+    /** 다음 달 발주 예정 금액 = 승인된 AI 제안서 금액(화면의 발주 수량과 같은 제안서). 없으면 참고 계산 그대로 */
+    private LatestResult<CostForecastResponse> targetCost(String month, LatestResult<CostForecastResponse> reference,
+                                                         ProposalResponse proposal, String basisNote) {
+        if (proposal == null || proposal.totalAmountKrw() == null) return reference;
+        return merged(month, reference, proposal, forecastOf(reference, CostForecastResult::packagingCostKrw),
+                forecastOf(reference, CostForecastResult::packagingSavingsKrw), proposal.totalAmountKrw(),
+                basisNote == null ? "AI 제안서 주문 금액 기준" : basisNote + " · AI 제안서 주문 금액");
+    }
+
+    private LatestResult<CostForecastResponse> merged(String month, LatestResult<CostForecastResponse> reference,
+                                                      ProposalResponse proposal, Long cost, Long saving, Long purchase,
+                                                      String basis) {
+        var base = reference == null || reference.result() == null ? null : reference.result();
+        var old = base == null ? null : base.forecast();
+        var result = new CostForecastResult(cost, saving, purchase, old == null ? null : old.previousMonth(),
+                old == null ? null : old.previousYear(), old == null ? List.of() : old.items(), List.of(basis));
+        var response = new CostForecastResponse(proposal != null ? proposal.id() : base == null ? null : base.id(), null, month,
+                proposal != null ? proposal.dataAsOf() : base == null ? null : base.dataAsOf(),
+                proposal != null ? proposal.generatedAt() : base == null ? null : base.generatedAt(), "KRW", false, result);
+        return LatestResult.of(month, response, reference == null ? null : reference.latestJob());
+    }
+
+    private static Long forecastOf(LatestResult<CostForecastResponse> value, java.util.function.Function<CostForecastResult, Long> field) {
+        return value == null || value.result() == null || value.result().forecast() == null ? null
+                : field.apply(value.result().forecast());
+    }
+
+    /** 본부 리포트(box_agent.hq_report)의 그 달 그 센터 실제 절감. 데이터가 있는 일수로 나눠 30일로 맞춘다. 없으면 null */
+    private Long actualSaving(UUID warehouseId, YearMonth month) {
+        try {
+            var rows = jdbc.queryForList("""
+                    select (r->>'saving')::numeric as saving, (r->>'days')::numeric as days
+                    from box_agent.hq_report h, jsonb_array_elements(h.data) r
+                    where h.month = :month and r->>'warehouseId' = :wh
+                    """, Map.of("month", month.toString(), "wh", warehouseId.toString()));
+            if (rows.isEmpty() || rows.getFirst().get("saving") == null) return null;
+            BigDecimal saving = (BigDecimal) rows.getFirst().get("saving");
+            BigDecimal days = rows.getFirst().get("days") == null ? BigDecimal.valueOf(month.lengthOfMonth())
+                    : (BigDecimal) rows.getFirst().get("days");
+            return days.signum() <= 0 ? null : saving.multiply(BigDecimal.valueOf(30)).divide(days, 0, RoundingMode.HALF_UP).longValue();
+        } catch (org.springframework.dao.DataAccessException e) {
+            return null;                              // 본부 리포트 테이블이 없는 DB(에이전트 미설치·테스트)
+        }
     }
 
     /**

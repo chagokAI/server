@@ -57,11 +57,44 @@ class DashboardPlanningTests {
         assertThat(p.endQty()).isEqualTo(100 - 54 + 40 + 250 - 300);
         assertThat(result.projectedStockQty()).isEqualTo(p.endQty());
         assertThat(p.safetyQty()).isEqualTo(70);                 // 300 × 7일 / 30일
+        assertThat(result.currentMonthCost().result()).isNull();  // 이번 달 제안서·리포트 없음 → 참고 계산 그대로
         // 크기별: 입고 예정·입고된 제안 발주 크기 조회(jdbc.query)는 비어 있으므로 S = 100 − 54 + 270 − 300
         var size = p.bySize().getFirst();
         assertThat(size.sizeClass()).isEqualTo("S");
         assertThat(size.orderQty()).isEqualTo(270);
         assertThat(size.endQty()).isEqualTo(100 - 54 + 270 - 300);
+    }
+
+    @Test void reportsThisMonthsCostFromThisMonthsAgentProposal() {
+        var warehouse = UUID.randomUUID();
+        var boxes = mock(BoxSpecRepository.class);
+        when(boxes.findByWarehouseIdAndIsActiveTrue(warehouse)).thenReturn(List.of());
+        var inventory = mock(InventoryService.class);
+        when(inventory.summarize(warehouse)).thenReturn(new InventorySummary(0L, 0, 0, List.of(), null, null, null, 14, null, null, 0));
+        var forecasts = mock(ProcurementQueryService.class);
+        var summary = Map.<String, Object>of("clientView", Map.of(), "forecast", Map.of("forecast", 40),
+                "simulation", Map.of("monthly_saving", 500),
+                "usagePlan", List.of(Map.of("code", "S-1", "dims", List.of(100,100,100), "unitPrice", 100, "expectedUsage", 40)));
+        var octBox = BoxSpec.builder().id(UUID.randomUUID()).code("S-1").sizeClass('S').build();
+        var octItem = ProcurementProposalItem.builder().boxSpec(octBox).proposedQty(50).forecastUsageQty(40).unitPriceKrw(100).build();
+        var october = ProposalResponse.from(ProcurementProposal.builder().targetMonth("2026-10").summary(summary).build(), List.of(octItem));
+        when(forecasts.latestProposal(warehouse, "2026-10", "AUTO")).thenReturn(LatestResult.of("2026-10", october, null));
+        when(forecasts.latestProposal(warehouse, "2026-11", "AUTO")).thenReturn(LatestResult.of("2026-11", null, null));
+        when(forecasts.latestCost(eq(warehouse), anyString())).thenAnswer(call -> LatestResult.of(call.getArgument(1), null, null));
+        var jdbc = mock(NamedParameterJdbcTemplate.class);
+        // 본부 리포트 10월: 25일치 실제 절감 2,500원 → 30일 기준 3,000원
+        when(jdbc.queryForList(anyString(), anyMap())).thenReturn(List.of(Map.of("saving", new BigDecimal("2500"), "days", new BigDecimal("25"))));
+        var properties = new ChagokProperties(ZoneId.of("Asia/Seoul"), 300, new ChagokProperties.Inventory(3,14), new ChagokProperties.BoxSize(10,50));
+        var result = new DashboardQueryService(boxes, inventory, forecasts, mock(WarehouseQueryGuard.class), properties,
+                new BoxSizeClassifier(properties), jdbc, OCT_26_14H).get(warehouse, "2026-11");
+        var cost = result.currentMonthCost().result().forecast();
+        assertThat(cost.packagingCostKrw()).isEqualTo(4000);       // 10월 제안서 사용 계획 40 × 100원
+        assertThat(cost.packagingSavingsKrw()).isEqualTo(3000);    // 리포트 실제 절감(시뮬레이션 500원이 아님)
+        // 11월 제안서가 없으면 10월 제안서로 대신 그린다(임시, 기준 문구 표시)
+        assertThat(result.demandForecast().totalForecastUsageQty()).isEqualTo(40);
+        assertThat(result.planMetrics().basis()).startsWith("10월 제안서 기준(11월 제안서 생성 전 임시)");
+        assertThat(result.targetMonthCost().result().forecast().purchaseCostKrw()).isEqualTo(5000);   // 10월 주문 50 × 100원
+        assertThat(result.targetMonthCost().result().forecast().insights().getFirst()).startsWith("10월 제안서 기준");
     }
 
     @Test void derivesSafetyDaysFromTheFullForecastAndKeepsShortageAndUnknownCountsConsistent() {
