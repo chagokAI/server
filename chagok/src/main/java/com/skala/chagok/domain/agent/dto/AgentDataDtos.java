@@ -32,6 +32,9 @@ public final class AgentDataDtos {
                                   Integer depthMm, Integer heightMm, Integer weightG, String matchedBox,
                                   Double fillRatePct, long shipments) {}
 
+    /** 실제 포장 배정(item_event.box_spec_id)의 상품×박스 건수. boxCode가 null이면 들어가는 박스가 없던 건(대기 NO_AVAILABLE_BOX, 실시간 배정 전 출고) */
+    public record BoxUsage(UUID productId, String boxCode, long shipments, Double fillRatePct) {}
+
     public record MonthlyShipment(String month, long shipments) {}
 
     public record PurchaseOrderItem(UUID purchaseOrderId, String poNo, String status, Instant createdAt,
