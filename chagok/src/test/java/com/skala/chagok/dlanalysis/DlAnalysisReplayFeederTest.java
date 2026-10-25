@@ -26,7 +26,13 @@ class DlAnalysisReplayFeederTest {
         var feeder = new DlAnalysisReplayFeeder(source, mock(DlAnalysisResultProducer.class), mock(DlAnalysisItemEventRepository.class),
                 mock(EntityManager.class), "jdbc:postgresql://localhost/test", false);
         org.springframework.test.util.ReflectionTestUtils.setField(feeder, "continuous", true);
+        var history = mock(com.skala.chagok.live.LiveHistoryEnd.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(feeder, "historyEnd", history);
+        when(history.passed(warehouse)).thenReturn(false);       // 기존 이력이 아직 끝나지 않음 → 켜지 않음
         feeder.startContinuous();
+        assertThat(feeder.isRunning(warehouse)).isFalse();
+        when(history.passed(warehouse)).thenReturn(true);        // 이력이 끝나면 다음 확인 때 켬
+        feeder.activateContinuous();
         assertThat(feeder.isRunning(warehouse)).isTrue();
         feeder.setRunning(warehouse, true, "operator-session");      // 화면에서 다시 켜도
         feeder.stopOwnedBy(warehouse, "operator-session");           // 그 세션이 끝나도 계속

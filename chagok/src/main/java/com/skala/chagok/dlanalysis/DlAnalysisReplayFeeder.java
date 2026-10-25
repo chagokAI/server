@@ -33,6 +33,10 @@ public class DlAnalysisReplayFeeder {
     static final String CONTINUOUS_OWNER = "continuous";
     @Value("${chagok.live.continuous.enabled:false}") private boolean continuous;
     private final java.util.Set<UUID> continuousWarehouses = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    // 기존 출고 이력이 끝나기를 기다리는 연속 재생 센터(이력이 미래 시각까지 있으면 그때까지는 초기화 모드)
+    private final java.util.Set<UUID> continuousPending = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.skala.chagok.live.LiveHistoryEnd historyEnd;
 
     public DlAnalysisReplayFeeder(DlAnalysisReplaySource source, DlAnalysisResultProducer producer,
             DlAnalysisItemEventRepository events, EntityManager entityManager,
@@ -55,11 +59,23 @@ public class DlAnalysisReplayFeeder {
         }
     }
 
-    /** 연속 재생이면 표본이 있는 센터를 바로 켠다. 운영자가 화면에서 멈추면 그 센터는 멈춘다 */
+    /**
+     * 연속 재생이면 표본이 있는 센터를 켠다. 그 센터의 기존 출고 이력이 아직 끝나지 않았으면(미래 시각까지 있으면)
+     * 끝난 뒤 1분 안에 켠다. 운영자가 화면에서 멈추면 그 센터는 멈춘다
+     */
     @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
     public void startContinuous() {
         if (!continuous) return;
-        for (UUID warehouseId : source.warehousesWithSamples()) {
+        continuousPending.addAll(source.warehousesWithSamples());
+        activateContinuous();
+    }
+
+    @Scheduled(fixedDelayString = "${chagok.live.continuous.activation-check-ms:60000}")
+    public void activateContinuous() {
+        if (!continuous) return;
+        for (UUID warehouseId : List.copyOf(continuousPending)) {
+            if (historyEnd != null && !historyEnd.passed(warehouseId)) continue;
+            continuousPending.remove(warehouseId);
             continuousWarehouses.add(warehouseId);
             setRunning(warehouseId, true, CONTINUOUS_OWNER);
             log.info("라이브 연속 재생 시작: warehouseId={}", warehouseId);
