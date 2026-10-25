@@ -23,7 +23,8 @@ if [ "$mode" = deploy ]; then
   live_feeder=${LIVE_FEEDER_ENABLED:-}
   live_allow_remote=${LIVE_ALLOW_REMOTE_DATABASE:-}
   live_reset=${LIVE_RESET_ENABLED:-}
-  for value in "$live_feeder" "$live_allow_remote" "$live_reset"; do
+  live_continuous=${LIVE_CONTINUOUS_ENABLED:-}
+  for value in "$live_feeder" "$live_allow_remote" "$live_reset" "$live_continuous"; do
     [[ -z "$value" || "$value" = true || "$value" = false ]] || die 'Live settings must be true or false'
   done
 else
@@ -31,6 +32,7 @@ else
   live_feeder=''
   live_allow_remote=''
   live_reset=''
+  live_continuous=''
 fi
 
 umask 077
@@ -44,4 +46,4 @@ ssh -T -i "$work_dir/key" -l "$DEPLOY_USER" -p "$port" \
   -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
   -o "UserKnownHostsFile=$work_dir/known_hosts" -o ConnectTimeout=10 \
   -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
-  "$DEPLOY_HOST" "bash -s -- '$mode' '$image' '$config' '$live_feeder' '$live_allow_remote' '$live_reset'" < "$script_dir/deploy-server.sh"
+  "$DEPLOY_HOST" "bash -s -- '$mode' '$image' '$config' '$live_feeder' '$live_allow_remote' '$live_reset' '$live_continuous'" < "$script_dir/deploy-server.sh"

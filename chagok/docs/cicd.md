@@ -29,7 +29,9 @@ server 저장소의 `production` Environment에 다음 값을 등록한다.
 초기에는 `false`로 두고 CI·이미지 발행을 확인한 뒤 활성화한다.
 라이브 물류 재생을 사용할 때는 같은 저장소 Variables에 `LIVE_FEEDER_ENABLED=true`,
 `LIVE_ALLOW_REMOTE_DATABASE=true`를 등록한다. 매시 정각·30분 라이브 변경분 초기화도 사용하려면
-`LIVE_RESET_ENABLED=true`를 추가한다. 세 변수는 미등록 시 `false`이며,
+`LIVE_RESET_ENABLED=true`를 추가한다. 시연 이력 뒤로 실제처럼 계속 재생하려면 `LIVE_CONTINUOUS_ENABLED=true`를 등록한다
+(표본에 센터가 기록된 센터를 서버 시작 때 켜고 세션과 무관하게 재생, 30분 초기화는 건너뜀, 매일 00:40 일별 집계가 끝난 2일 지난 라이브 원본만 정리).
+네 변수는 미등록 시 `false`이며,
 Server Deploy가 SSH 배포 스크립트를 거쳐 backend 컨테이너의 환경변수로 전달한다.
 `postgres` 같은 Docker 서비스 이름으로 접속하는 DB도 loopback 주소가 아니므로 라이브 재생에는 원격 DB 허용이 필요하다.
 기능을 활성화해도 물품 투입은 화면에서 재생을 누를 때 시작한다.
