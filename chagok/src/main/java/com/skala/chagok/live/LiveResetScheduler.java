@@ -16,8 +16,10 @@ import lombok.extern.slf4j.Slf4j;
 public class LiveResetScheduler {
     private final JdbcTemplate jdbc;
     private final LiveResetService reset;
-    // 연속 재생 중에는 쌓인 라이브 출고가 실제 이력이므로 초기화하지 않는다(설정을 같이 켜 둬도 안전하게)
+    // 연속 재생 중인 센터는 쌓인 라이브 출고가 실제 이력이므로 초기화하지 않는다(설정을 같이 켜 둬도 안전하게).
+    // 기존 출고 이력이 끝나기 전(연속 재생 시작 전)에는 초기화한다
     @Value("${chagok.live.continuous.enabled:false}") private boolean continuous;
+    @org.springframework.beans.factory.annotation.Autowired(required = false) private LiveHistoryEnd historyEnd;
 
     LiveResetScheduler(JdbcTemplate jdbc, LiveResetService reset, @Value("${spring.datasource.url}") String url,
             @Value("${chagok.live.allow-remote-database:false}") boolean allowRemote) {
@@ -27,10 +29,10 @@ public class LiveResetScheduler {
 
     @Scheduled(cron = "${chagok.live.reset.cron:0 */30 * * * *}", zone = "${chagok.timezone:Asia/Seoul}")
     public void tick() {
-        if (continuous) return;
         var warehouses = jdbc.query("select distinct warehouse_id from item_event where event_id like ?",
                 (rs, i) -> rs.getObject(1, UUID.class), LiveEventIds.PREFIX + "%");
         for (var id : warehouses) {
+            if (continuous && (historyEnd == null || historyEnd.passed(id))) continue;
             try { reset.reset(id); }
             catch (RuntimeException e) { log.warn("라이브 초기화 실패: warehouseId={}", id, e); }
         }
