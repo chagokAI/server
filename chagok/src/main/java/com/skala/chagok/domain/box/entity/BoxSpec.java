@@ -110,6 +110,15 @@ public class BoxSpec {
         this.safetyQty = safetyQty;
     }
 
+    public void useAutomaticSafety(int days) {
+        this.safetyQty = null;
+        this.safetyDays = days;
+    }
+
+    public void useAutomaticTarget() {
+        this.targetQty = null;
+    }
+
     public void updatePolicy(Integer qty, Integer days, Boolean alert, Integer target) {
         if (qty != null) this.safetyQty = qty;
         if (days != null) this.safetyDays = days;
@@ -120,6 +129,11 @@ public class BoxSpec {
     public void changeStock(int quantity, Instant now) {
         this.onHandQty = quantity;
         this.stockUpdatedAt = now;
+    }
+
+    /** 맞춤 발주 초안을 승인했을 때 활성화한다. 입고 전에는 재고를 늘리지 않는다. */
+    public void activateForPurchase() {
+        this.isActive = true;
     }
 
     public void update(String code, String name, Character sizeClass,

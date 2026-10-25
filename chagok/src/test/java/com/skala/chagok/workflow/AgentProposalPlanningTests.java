@@ -27,7 +27,8 @@ class AgentProposalPlanningTests {
     final ProcurementProposalItemRepository items = mock(ProcurementProposalItemRepository.class);
     final BoxSizeClassifier sizes = new BoxSizeClassifier(new ChagokProperties(ZoneId.of("Asia/Seoul"), 300,
             new ChagokProperties.Inventory(3, 14), new ChagokProperties.BoxSize(10, 50)));
-    final AgentProposalItemService service = new AgentProposalItemService(boxes, suppliers, items, sizes);
+    final AgentProposalItemService service = new AgentProposalItemService(boxes, suppliers, items, sizes,
+            mock(com.skala.chagok.domain.product.service.ProductMatchService.class));
 
     Map<String, Object> summary() {
         var line = new LinkedHashMap<String, Object>();
@@ -100,6 +101,62 @@ class AgentProposalPlanningTests {
         assertThat(projection.usage()).hasSize(2);
         assertThat(projection.boxCostKrw()).isEqualTo(1635L*749 + 6775L*224);
         assertThat(projection.monthlySavingsKrw()).isEqualTo(792274);
+    }
+
+    Map<String, Object> customSummary() {
+        var data = summary();
+        var line = AgentProposalData.rows(data.get("lines")).getFirst();
+        line.put("type", "CUSTOM_SPEC");
+        line.put("boxCode", "N-맞춤 450x320x100");
+        var quote = Map.of("ok", true, "supplier", "upackage", "spec", "A형 B골 무인쇄",
+                "dims", List.of(450, 320, 100), "unitPrice", 749);
+        data.put("newSpecs", List.of(Map.of("code", line.get("boxCode"), "name", "맞춤 450x320x100",
+                "dims", line.get("dims"), "price", 749, "type", "CUSTOM", "ref", "upackage:A형 B골 무인쇄", "quote", quote)));
+        return data;
+    }
+
+    @Test void customQuantityIsIncludedButBoxStaysInactiveUntilOrderApproval() {
+        var proposal = proposal(customSummary());
+        var customSupplier = Supplier.builder().id(UUID.randomUUID()).warehouse(warehouse).name("유팩").build();
+        when(suppliers.findByWarehouseId(warehouse.getId())).thenReturn(List.of(customSupplier));
+        when(boxes.saveAndFlush(any())).thenAnswer(invocation -> {
+            BoxSpec box = invocation.getArgument(0); ReflectionTestUtils.setField(box, "id", UUID.randomUUID()); return box;
+        });
+        assertThat(ProposalResponse.from(proposal, List.of()).totalQty()).isEqualTo(2000);
+        service.materialize(proposal);
+        var captured = org.mockito.ArgumentCaptor.forClass(ProcurementProposalItem.class);
+        verify(items).saveAndFlush(captured.capture());
+        var box = captured.getValue().getBoxSpec();
+        assertThat(box.getIsCustom()).isTrue();
+        assertThat(box.getIsActive()).isFalse();
+        assertThat(box.getOnHandQty()).isZero();
+        assertThat(box.getDescription()).isEqualTo("custom:upackage:A형 B골 무인쇄");
+        assertThat(service.pendingCustom(proposal, box)).isTrue();
+        assertThat(service.pendingCustom(proposal(summary()), box)).isFalse();
+    }
+
+    @Test void customSupplierIsRegisteredFromValidatedQuoteWithoutGuessingLeadTime() {
+        when(suppliers.findByWarehouseId(warehouse.getId())).thenReturn(List.of());
+        when(suppliers.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(boxes.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        service.materialize(proposal(customSummary()));
+        var captured = org.mockito.ArgumentCaptor.forClass(Supplier.class);
+        verify(suppliers).saveAndFlush(captured.capture());
+        assertThat(captured.getValue().getName()).isEqualTo("유팩");
+        assertThat(captured.getValue().getWarehouse()).isSameAs(warehouse);
+        assertThat(captured.getValue().getLeadTimeDays()).isNull();
+    }
+
+    @Test void customWithoutMatchingQuoteCannotBecomeAPurchaseItem() {
+        var data = customSummary();
+        var candidate = new LinkedHashMap<>(AgentProposalData.rows(data.get("newSpecs")).getFirst());
+        candidate.put("orderQuote", Map.of("ok", false));
+        data.put("newSpecs", List.of(candidate));
+        assertThatThrownBy(() -> service.materialize(proposal(data)))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("견적");
+        verify(boxes, never()).saveAndFlush(any());
+        verify(suppliers, never()).saveAndFlush(any());
+        verify(items, never()).saveAndFlush(any());
     }
 
     @Test void combinedSimulationSavingsAreUsedWithoutAddingOverlappingCandidates() {

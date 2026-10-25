@@ -50,6 +50,11 @@ public record InventoryItemResponse(
     }
 
     public static InventoryItemResponse from(BoxSpec boxSpec, InventoryStatus status, ZoneId zone, BigDecimal dailyForecast, java.time.Instant usageDataAsOf) {
+        return from(boxSpec, status, zone, dailyForecast, usageDataAsOf, null);
+    }
+
+    public static InventoryItemResponse from(BoxSpec boxSpec, InventoryStatus status, ZoneId zone, BigDecimal dailyForecast,
+            java.time.Instant usageDataAsOf, com.skala.chagok.domain.inventory.service.InventoryPolicyProjection policy) {
         return new InventoryItemResponse(
                 boxSpec.getId(),
                 boxSpec.getCode(),
@@ -58,16 +63,16 @@ public record InventoryItemResponse(
                 boxSpec.getInnerDepthMm(),
                 boxSpec.getInnerHeightMm(),
                 boxSpec.getOnHandQty(),
-                boxSpec.getSafetyQty(),
-                boxSpec.getTargetQty(),
-                stockLevelPct(boxSpec.getOnHandQty(), boxSpec.getTargetQty()),
-                boxSpec.getDaysToStockout(),
-                status,
+                policy == null ? boxSpec.getSafetyQty() : policy.safetyQty(),
+                policy == null ? boxSpec.getTargetQty() : policy.targetQty(),
+                policy == null ? stockLevelPct(boxSpec.getOnHandQty(), boxSpec.getTargetQty()) : policy.stockLevelPct(),
+                policy == null ? boxSpec.getDaysToStockout() : policy.daysToStockout(),
+                policy == null ? status : policy.status(),
                 SupplierSummary.from(boxSpec.getSupplier()),
                 boxSpec.getStockUpdatedAt() == null ? null : boxSpec.getStockUpdatedAt().atZone(zone).toOffsetDateTime(),
                 boxSpec.getVersion(),
                 boxSpec.getForecastUpdatedAt() == null ? null : boxSpec.getForecastUpdatedAt().atZone(zone).toOffsetDateTime(),
-                boxSpec.getSafetyDays(),
+                policy == null ? boxSpec.getSafetyDays() : policy.safetyDays(),
                 boxSpec.getAlertEnabled(),
                 dailyForecast,
                 dailyForecast == null ? "NOT_AVAILABLE" : "REFERENCE_FORECAST",

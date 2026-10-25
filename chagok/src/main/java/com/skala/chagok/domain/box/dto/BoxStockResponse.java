@@ -4,6 +4,7 @@ import com.skala.chagok.domain.box.entity.BoxMaterial;
 import com.skala.chagok.domain.box.entity.BoxSpec;
 import com.skala.chagok.domain.inventory.dto.InventoryItemResponse;
 import com.skala.chagok.domain.inventory.dto.InventoryStatus;
+import com.skala.chagok.domain.inventory.service.InventoryPolicyProjection;
 import com.skala.chagok.domain.supplier.entity.Supplier;
 
 import java.math.BigDecimal;
@@ -63,12 +64,21 @@ public record BoxStockResponse(
             String usageSource,
             Instant usageDataAsOf,
             OffsetDateTime stockUpdatedAt,
-            OffsetDateTime forecastUpdatedAt
+            OffsetDateTime forecastUpdatedAt,
+            Integer configuredSafetyQty,
+            Integer configuredTargetQty,
+            Integer planningDays,
+            java.time.LocalDate nextDeliveryDate
     ) {
     }
 
     public static BoxStockResponse from(BoxSpec boxSpec, long linkedProductCount, InventoryStatus status,
                                         ZoneId zone, BigDecimal dailyUsage, Instant usageDataAsOf) {
+        return from(boxSpec, linkedProductCount, status, zone, dailyUsage, usageDataAsOf, null);
+    }
+
+    public static BoxStockResponse from(BoxSpec boxSpec, long linkedProductCount, InventoryStatus status,
+            ZoneId zone, BigDecimal dailyUsage, Instant usageDataAsOf, InventoryPolicyProjection policy) {
         // 크롤링 원본("골판지 B골")처럼 코드가 아닌 값도 코드·표시 이름으로 바꿔 내려준다. 해석할 수 없으면 원본 그대로.
         Optional<BoxMaterial> material = BoxMaterial.parse(boxSpec.getMaterial());
         return new BoxStockResponse(
@@ -90,12 +100,12 @@ public record BoxStockResponse(
                 linkedProductCount,
                 new Stock(
                         boxSpec.getOnHandQty(),
-                        boxSpec.getSafetyQty(),
-                        boxSpec.getTargetQty(),
-                        InventoryItemResponse.stockLevelPct(boxSpec.getOnHandQty(), boxSpec.getTargetQty()),
-                        boxSpec.getDaysToStockout(),
-                        status,
-                        boxSpec.getSafetyDays(),
+                        policy == null ? boxSpec.getSafetyQty() : policy.safetyQty(),
+                        policy == null ? boxSpec.getTargetQty() : policy.targetQty(),
+                        policy == null ? InventoryItemResponse.stockLevelPct(boxSpec.getOnHandQty(), boxSpec.getTargetQty()) : policy.stockLevelPct(),
+                        policy == null ? boxSpec.getDaysToStockout() : policy.daysToStockout(),
+                        policy == null ? status : policy.status(),
+                        policy == null ? boxSpec.getSafetyDays() : policy.safetyDays(),
                         boxSpec.getAlertEnabled(),
                         dailyUsage,
                         dailyUsage == null ? "NOT_AVAILABLE" : "REFERENCE_FORECAST",
@@ -103,7 +113,9 @@ public record BoxStockResponse(
                         boxSpec.getStockUpdatedAt() == null ? null
                                 : boxSpec.getStockUpdatedAt().atZone(zone).toOffsetDateTime(),
                         boxSpec.getForecastUpdatedAt() == null ? null
-                                : boxSpec.getForecastUpdatedAt().atZone(zone).toOffsetDateTime()
+                                : boxSpec.getForecastUpdatedAt().atZone(zone).toOffsetDateTime(),
+                        boxSpec.getSafetyQty(), boxSpec.getTargetQty(),
+                        policy == null ? null : policy.planningDays(), policy == null ? null : policy.nextDeliveryDate()
                 )
         );
     }

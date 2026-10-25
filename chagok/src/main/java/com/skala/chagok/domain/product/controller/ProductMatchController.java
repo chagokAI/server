@@ -79,8 +79,9 @@ public class ProductMatchController {
     /** MATCH-API-04 */
     /** 매칭 박스가 없는 상품에 치수 기준 1순위 박스를 일괄 적용한다(DB에 직접 들어온 상품 채우기). */
     @PostMapping("/product-matches/recalculate")
-    public ApiResponse<MatchRecalculationResponse> recalculateUnmatched(@PathVariable UUID warehouseId) {
-        return apiResponses.of(productMatchService.recalculateUnmatched(warehouseId));
+    public ApiResponse<MatchRecalculationResponse> recalculateUnmatched(@PathVariable UUID warehouseId,
+            @RequestParam(defaultValue = "false") boolean refreshExisting) {
+        return apiResponses.of(productMatchService.recalculateMatches(warehouseId, refreshExisting));
     }
 
     @PutMapping("/products/{productId}/box-match")

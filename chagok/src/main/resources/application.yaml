@@ -118,8 +118,9 @@ chagok:
     order-unit: 100
     timeout: 5m
   inventory:
+    planning-lead-time-days: 5
     caution-buffer-days: 3
-    target-days-to-stockout: 14
+    target-days-to-stockout: 12
   # 내경 부피 기준 박스 크기 분류. S ≤ 10L < M ≤ 50L < L
   box-size:
     small-max-liters: 10

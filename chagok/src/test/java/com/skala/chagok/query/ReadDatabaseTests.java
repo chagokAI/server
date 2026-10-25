@@ -275,12 +275,15 @@ class ReadDatabaseTests {
                 repositories.getRepository(PurchaseOrderItemRepository.class), repositories.getRepository(ProcurementProposalItemRepository.class),
                 repositories.getRepository(ItemEventRepository.class), mock(com.skala.chagok.domain.inventory.repository.InventoryMovementRepository.class),
                 mock(com.skala.chagok.domain.product.service.ProductMatchingService.class),
-                new com.skala.chagok.domain.box.service.BoxSizeClassifier(properties));
+                new com.skala.chagok.domain.box.service.BoxSizeClassifier(properties),
+                mock(com.skala.chagok.domain.product.service.ProductMatchService.class));
         var usages = new com.skala.chagok.domain.inventory.service.InventoryUsageReader(
                 repositories.getRepository(ProcurementProposalRepository.class),
-                repositories.getRepository(ProcurementProposalItemRepository.class), properties);
+                repositories.getRepository(ProcurementProposalItemRepository.class), properties, boxSpecs);
         var inventories = new com.skala.chagok.domain.inventory.service.InventoryService(boxSpecs, warehouses, usages, properties,
-                mock(com.skala.chagok.domain.notification.service.DomainNotificationService.class));
+                mock(com.skala.chagok.domain.notification.service.DomainNotificationService.class),
+                new com.skala.chagok.domain.inventory.service.InventoryPolicyReader(mock(NamedParameterJdbcTemplate.class),
+                        properties, java.time.Clock.systemUTC()));
         var stocks = new com.skala.chagok.domain.box.service.BoxStockService(boxSpecs, products, usages, inventories,
                 new WarehouseQueryGuard(warehouses), properties);
         var result = stocks.getBoxStocks(warehouseId, null, true, null, 0, 20, null);

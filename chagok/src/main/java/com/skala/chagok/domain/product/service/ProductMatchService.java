@@ -118,8 +118,15 @@ public class ProductMatchService {
      */
     @Transactional
     public MatchRecalculationResponse recalculateUnmatched(UUID warehouseId) {
+        return recalculateMatches(warehouseId, false);
+    }
+
+    /** 현재 활성 박스 기준으로 자동 매칭을 갱신한다. 수동 지정은 기존 검증 규칙으로 보존한다. */
+    @Transactional
+    public MatchRecalculationResponse recalculateMatches(UUID warehouseId, boolean refreshExisting) {
         warehouseRepository.lockById(warehouseId).orElseThrow(() -> BusinessException.notFound("센터"));
-        List<Product> targets = productRepository.findByWarehouseIdAndIsActiveTrueAndMatchedBoxSpecIsNull(warehouseId);
+        List<Product> targets = refreshExisting ? productRepository.findByWarehouseIdAndIsActiveTrue(warehouseId)
+                : productRepository.findByWarehouseIdAndIsActiveTrueAndMatchedBoxSpecIsNull(warehouseId);
         List<BoxSpec> activeBoxes = boxSpecRepository.findByWarehouseIdAndIsActiveTrue(warehouseId);
         targets.forEach(product -> matching.applyBestCandidate(product, activeBoxes));
         productRepository.flush();

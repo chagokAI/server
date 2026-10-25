@@ -3,6 +3,8 @@ package com.skala.chagok.domain.inventory.service;
 import com.skala.chagok.domain.inventory.dto.InventorySummary;
 import com.skala.chagok.domain.procurement.repository.ProcurementProposalItemRepository;
 import com.skala.chagok.domain.procurement.repository.ProcurementProposalRepository;
+import com.skala.chagok.domain.procurement.dto.AgentProposalData;
+import com.skala.chagok.domain.box.repository.BoxSpecRepository;
 import com.skala.chagok.global.config.ChagokProperties;
 
 import java.time.YearMonth;
@@ -24,17 +26,33 @@ public class InventoryUsageReader {
     private final ProcurementProposalRepository proposals;
     private final ProcurementProposalItemRepository proposalItems;
     private final ChagokProperties properties;
+    private final BoxSpecRepository boxes;
 
     public InventoryUsage read(UUID warehouseId) {
         YearMonth month = YearMonth.now(properties.timezone());
-        return proposals
-                .findFirstByWarehouseIdAndTargetMonthOrderByGeneratedAtDescIdDesc(warehouseId, month.toString())
-                .map(proposal -> {
+        var candidates = proposals.findByWarehouseIdAndTargetMonthOrderByGeneratedAtDescIdDesc(warehouseId, month.toString());
+        var selected = candidates.stream().filter(p -> p.getSummary() != null && p.getSummary().containsKey("clientView")
+                && AgentProposalData.approved(p.getSummary())).findFirst().or(() -> candidates.stream().findFirst());
+        return selected.map(proposal -> {
                     var lines = proposalItems.findByProposalId(proposal.getId());
                     Map<UUID, Integer> monthly = new HashMap<>();
                     lines.stream().filter(item -> item.getForecastUsageQty() != null)
                             .forEach(item -> monthly.put(item.getBoxSpec().getId(), item.getForecastUsageQty()));
-                    return new InventoryUsage(month, monthly, !lines.isEmpty() && monthly.size() == lines.size(),
+                    var plan = AgentProposalData.rows(proposal.getSummary() == null ? null : proposal.getSummary().get("usagePlan"));
+                    var byCode = new HashMap<String, UUID>();
+                    if (!plan.isEmpty()) boxes.findByWarehouseIdAndIsActiveTrue(warehouseId)
+                            .forEach(box -> byCode.put(box.getCode(), box.getId()));
+                    boolean complete = !lines.isEmpty() && monthly.size() == lines.size();
+                    if (!plan.isEmpty()) {
+                        complete = true;
+                        for (var row : plan) {
+                            UUID id = byCode.get(row.get("code"));
+                            Integer qty = AgentProposalData.integer(row.get("expectedUsage"));
+                            if (id == null || qty == null || qty < 0) complete = false;
+                            else monthly.put(id, qty);
+                        }
+                    }
+                    return new InventoryUsage(month, monthly, complete,
                             new InventorySummary.ForecastSource(proposal.getId(), proposal.getTargetMonth(),
                                     proposal.getDataAsOf(), proposal.getGeneratedAt()));
                 })

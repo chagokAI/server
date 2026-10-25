@@ -65,12 +65,14 @@ public class DashboardQueryService {
             referenceCost.result().forecast().items().forEach(row -> {
                 if (row.forecastUsageQty() != null) monthly.putIfAbsent(row.boxSpec().code(), row.forecastUsageQty());
             });
+        String safetyMonth = proposal != null && proposal.result() != null ? proposal.result().targetMonth() : month;
         Map<UUID, Integer> safety = new HashMap<>();
         for (var box : specs) {
             Integer qty = box.getSafetyQty();
-            if (qty == null && box.getSafetyDays() != null && monthly.containsKey(box.getCode()))
-                qty = BigDecimal.valueOf(monthly.get(box.getCode())).multiply(BigDecimal.valueOf(box.getSafetyDays()))
-                        .divide(BigDecimal.valueOf(YearMonth.parse(month).lengthOfMonth()), 0, RoundingMode.CEILING).intValueExact();
+            if (qty == null && monthly.containsKey(box.getCode()))
+                qty = BigDecimal.valueOf(monthly.get(box.getCode())).multiply(BigDecimal.valueOf(box.getSafetyDays() == null
+                        ? com.skala.chagok.domain.inventory.service.InventoryPolicyProjection.DEFAULT_SAFETY_DAYS : box.getSafetyDays()))
+                        .divide(BigDecimal.valueOf(YearMonth.parse(safetyMonth).lengthOfMonth()), 0, RoundingMode.CEILING).intValueExact();
             if (qty != null) safety.put(box.getId(), qty);
         }
         Map<String, long[]> stocks = new TreeMap<>();
