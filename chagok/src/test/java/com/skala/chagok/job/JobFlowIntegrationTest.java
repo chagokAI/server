@@ -86,7 +86,12 @@ class JobFlowIntegrationTest {
         var cost = queries.latestCost(warehouseId, month).result();
         assertThat(proposal.jobId()).isEqualTo(id).isEqualTo(cost.jobId());
         assertThat(proposal.analysis()).containsEntry("method", "OBSERVATION_BASELINE");
-        assertThat(proposal.forecastUsageQty()).isEqualTo(YearMonth.parse(month).lengthOfMonth());
+        // 관측 일수 = 28일 전 0시부터 작업 접수 시각까지(오늘 지난 시간 포함). 밤늦게 접수하면 28일보다 1일 가깝게 길어져
+        // 28건 × 월 일수 ÷ 관측 일수가 월 일수보다 작아질 수 있으므로 같은 식으로 기대값을 구한다
+        var created = jobs.findById(id).orElseThrow().getCreatedAt();
+        var observedFrom = created.atZone(ZoneId.of("Asia/Seoul")).toLocalDate().minusDays(28).atStartOfDay(ZoneId.of("Asia/Seoul")).toInstant();
+        double observedDays = Duration.between(observedFrom, created).toMillis() / 86_400_000d;
+        assertThat(proposal.forecastUsageQty()).isEqualTo((int) Math.ceil(28 * YearMonth.parse(month).lengthOfMonth() / observedDays - 1e-9));
         assertThat(proposal.totalQty()).isEqualTo(100);
         assertThat(proposal.totalAmountKrw()).isEqualTo(18000);
         assertThat(cost.forecast().packagingSavingsKrw()).isNull();
