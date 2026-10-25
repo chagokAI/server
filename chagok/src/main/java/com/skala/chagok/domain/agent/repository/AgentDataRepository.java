@@ -39,12 +39,19 @@ public class AgentDataRepository {
     public EventStats eventStats(UUID warehouseId) {
         Map<String, Long> counts = new LinkedHashMap<>();
         Instant[] last = {null};
-        jdbc.query("select status, count(*) as n, max(occurred_at) as last from item_event where warehouse_id = :wh "
-                + "group by status order by status", Map.of("wh", warehouseId), rs -> {
-            counts.put(String.valueOf(rs.getString("status")), rs.getLong("n"));
-            Instant at = instant(rs.getTimestamp("last"));
-            if (at != null && (last[0] == null || at.isAfter(last[0]))) last[0] = at;
+        jdbc.query("select status, sum(shipments) as n, max(day) as last_day from agent_shipment_history "
+                + "where warehouse_id = :wh group by status order by status", Map.of("wh", warehouseId), rs -> {
+            counts.put(rs.getString("status"), rs.getLong("n"));
+            Instant at = rs.getDate("last_day").toLocalDate().plusDays(1).atStartOfDay(ZoneId.of("Asia/Seoul"))
+                    .toInstant().minusNanos(1000);
+            if (last[0] == null || at.isAfter(last[0])) last[0] = at;
         });
+        // 마지막 날 원본이 있으면 실제 시각을 사용해 진행 중인 달의 경과 일수를 정확히 계산한다.
+        Instant rawLast = jdbc.queryForObject("select max(occurred_at) from item_event "
+                + "where warehouse_id = :wh and event_id not like 'live-%' and occurred_at <= CURRENT_TIMESTAMP", Map.of("wh", warehouseId),
+                (rs, i) -> instant(rs.getTimestamp(1)));
+        if (rawLast != null && (last[0] == null || !rawLast.atZone(ZoneId.of("Asia/Seoul")).toLocalDate()
+                .isBefore(last[0].atZone(ZoneId.of("Asia/Seoul")).toLocalDate()))) last[0] = rawLast;
         return new EventStats(counts, last[0], counts.getOrDefault("PENDING", 0L));
     }
 
@@ -56,8 +63,8 @@ public class AgentDataRepository {
                 + "bs.code as matched_box, p.fill_rate_pct, coalesce(e.cnt, 0) as shipments "
                 + "from product p left join box_spec bs on bs.id = p.matched_box_spec_id "
                 + "left join category c on c.id = p.category_id "
-                + "left join (select product_id, count(*) as cnt from item_event where warehouse_id = :wh "
-                + "and occurred_at >= :from and occurred_at < :to" + filter + " group by product_id) e on e.product_id = p.id "
+                + "left join (select product_id, sum(shipments) as cnt from agent_shipment_history where warehouse_id = :wh "
+                + "and day >= (cast(:from as timestamptz) at time zone 'Asia/Seoul')::date and day < (cast(:to as timestamptz) at time zone 'Asia/Seoul')::date" + filter + " group by product_id) e on e.product_id = p.id "
                 + "where p.warehouse_id = :wh and coalesce(p.is_active, true) order by p.code";
         return jdbc.query(sql, params, (rs, i) -> new ProductShipment(rs.getObject("id", UUID.class), rs.getString("code"),
                 rs.getString("name"), rs.getString("category"), (Integer) rs.getObject("width_mm"),
@@ -67,12 +74,27 @@ public class AgentDataRepository {
                 rs.getLong("shipments")));
     }
 
+    public List<BoxUsage> boxUsage(UUID warehouseId, Instant from, Instant to) {
+        String sql = "select e.product_id, bs.code as box, sum(e.shipments) as n, "
+                + "sum(e.fill_rate_sum) / nullif(sum(e.shipments), 0) as fill "
+                + "from agent_shipment_history e left join box_spec bs on bs.id = e.box_spec_id "
+                + "where e.warehouse_id = :wh and e.day >= (cast(:from as timestamptz) at time zone 'Asia/Seoul')::date "
+                + "and e.day < (cast(:to as timestamptz) at time zone 'Asia/Seoul')::date and e.product_id is not null "
+                + "and (e.status = 'SUCCEEDED' or (e.status = 'WAITING' and e.failure_reason = 'NO_AVAILABLE_BOX')) "
+                + "group by e.product_id, bs.code order by e.product_id, bs.code";
+        return jdbc.query(sql, Map.of("wh", warehouseId, "from", Timestamp.from(from), "to", Timestamp.from(to)),
+                (rs, i) -> new BoxUsage(rs.getObject("product_id", UUID.class), rs.getString("box"), rs.getLong("n"),
+                        rs.getBigDecimal("fill") == null ? null : rs.getBigDecimal("fill").doubleValue()));
+    }
+
     public List<MonthlyShipment> monthlyShipments(UUID warehouseId, Instant from, Instant to, List<String> statuses,
                                                   ZoneId zone) {
         var params = new HashMap<String, Object>(Map.of("wh", warehouseId, "from", Timestamp.from(from),
                 "to", Timestamp.from(to), "tz", zone.getId()));
-        String sql = "select to_char(date_trunc('month', occurred_at at time zone :tz), 'YYYY-MM') as month, count(*) as n "
-                + "from item_event where warehouse_id = :wh and occurred_at >= :from and occurred_at < :to"
+        String sql = "select to_char(day, 'YYYY-MM') as month, sum(shipments) as n "
+                + "from agent_shipment_history where warehouse_id = :wh "
+                + "and day >= (cast(:from as timestamptz) at time zone :tz)::date "
+                + "and day < (cast(:to as timestamptz) at time zone :tz)::date"
                 + statusFilter(statuses, params) + " group by 1 order by 1";
         return jdbc.query(sql, params, (rs, i) -> new MonthlyShipment(rs.getString("month"), rs.getLong("n")));
     }
@@ -96,7 +118,8 @@ public class AgentDataRepository {
     public List<ProposalItem> proposals(UUID warehouseId, int limit) {
         String sql = "select id, target_month, generated_at, summary->>'jobId' as job_id, summary->>'totalAmount' as total, "
                 + "(summary->'newSpecs')::text as new_specs, (summary->'forecast')::text as forecast "
-                + "from procurement_proposal where warehouse_id = :wh order by generated_at desc nulls last limit :n";
+                + "from procurement_proposal where warehouse_id = :wh and summary->>'source' = 'box-agent' "
+                + "and summary->'approval'->>'status' = 'APPROVED' order by generated_at desc nulls last limit :n";
         return jdbc.query(sql, Map.of("wh", warehouseId, "n", limit), (rs, i) -> new ProposalItem(
                 rs.getObject("id", UUID.class), trim(rs.getString("target_month")), instant(rs.getTimestamp("generated_at")),
                 rs.getString("job_id"), rs.getString("total") == null ? null : (long) Double.parseDouble(rs.getString("total")),

@@ -34,6 +34,16 @@ public class AgentClient {
         public AgentUnavailableException(String message, Throwable cause) { super(message, cause); }
     }
 
+    /**
+     * 에이전트가 요청을 받아들이지 않음(4xx: 없는 리포트, 범위 밖 규칙 값 등). message = 에이전트가 준 이유.
+     * 기존 호출부(AI 작업)는 연결 실패와 같이 다루도록 AgentUnavailableException 을 잇는다
+     */
+    public static class AgentRejectedException extends AgentUnavailableException {
+        private final int status;
+        public AgentRejectedException(int status, String message) { super(message, null); this.status = status; }
+        public int status() { return status; }
+    }
+
     public boolean configured() { return !baseUrl.isBlank() && !token.isBlank(); }
 
     public Map<String, Object> createTask(String taskId, UUID warehouseId, String targetMonth) {
@@ -43,6 +53,24 @@ public class AgentClient {
 
     public Map<String, Object> getTask(String taskId) {
         return send("GET", "/internal/agent/tasks/" + taskId, null);
+    }
+
+    /** 본부 리포트·센터 지침서 조회 (관리자 화면) */
+    public Map<String, Object> get(String path) {
+        return send("GET", path, null);
+    }
+
+    public Map<String, Object> post(String path, Object body) {
+        return send("POST", path, body);
+    }
+
+    public Map<String, Object> put(String path, Object body) {
+        return send("PUT", path, body);
+    }
+
+    /** 센터 지침서 규칙 조정 저장 */
+    public Map<String, Object> patch(String path, Object body) {
+        return send("PATCH", path, body);
     }
 
     public void approve(String taskId, String decision, String comment) {
@@ -98,6 +126,8 @@ public class AgentClient {
             if (response.statusCode() >= 400) {
                 Object error = parsed.get("error");
                 String message = error instanceof Map<?, ?> m ? String.valueOf(m.get("message")) : response.body();
+                if (response.statusCode() < 500 && response.statusCode() != 401)
+                    throw new AgentRejectedException(response.statusCode(), message);
                 throw new AgentUnavailableException("에이전트 서버 " + response.statusCode() + ": " + message, null);
             }
             return parsed;

@@ -27,7 +27,11 @@ public class AiTaskService {
     /** 같은 센터·대상 월에 진행 중인 작업이 있으면 그 작업을 돌려준다(에이전트는 같은 제안 id 를 덮어쓰므로 동시 실행 금지) */
     public TaskResponse create(UUID warehouseId, CreateRequest request) {
         var active = recorder.active(warehouseId, request.targetMonth());
-        if (active.isPresent()) return active.get();
+        if (active.isPresent()) {
+            var current = get(warehouseId, active.get().id());
+            if (current.status() == AiTask.Status.RUNNING || current.status() == AiTask.Status.WAITING_APPROVAL)
+                return current;
+        }
         if (!agent.configured()) throw new BusinessException(ErrorCode.TEMPORARILY_UNAVAILABLE, "AI 에이전트가 연결되지 않았습니다.");
         UUID id = recorder.start(warehouseId, users.getCurrentUser(), request.targetMonth());
         try {
@@ -47,6 +51,10 @@ public class AiTaskService {
             try {
                 return recorder.sync(id, agent.getTask(id.toString()));
             } catch (AgentClient.AgentUnavailableException e) {
+                if (e instanceof AgentClient.AgentRejectedException rejected && rejected.status() == 404) {
+                    recorder.failed(id, "에이전트 재시작으로 중단된 작업입니다. 새로 생성해 주세요.");
+                    return recorder.view(warehouseId, id);
+                }
                 log.warn("AI 작업 {} 상태 확인 실패: {}", id, e.getMessage());
             }
         }

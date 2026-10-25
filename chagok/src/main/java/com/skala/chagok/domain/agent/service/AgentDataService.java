@@ -37,6 +37,14 @@ public class AgentDataService {
                 to.plusDays(1).atStartOfDay(zone).toInstant(), statuses);
     }
 
+    /** from~to(양 끝 포함) 실제 포장 배정 건수. 제안 에이전트는 이 값을 현재 박스 사용으로 쓴다. */
+    public List<BoxUsage> boxUsage(UUID warehouseId, LocalDate from, LocalDate to) {
+        requireWarehouse(warehouseId);
+        requireRange(from, to);
+        ZoneId zone = properties.timezone();
+        return repository.boxUsage(warehouseId, from.atStartOfDay(zone).toInstant(), to.plusDays(1).atStartOfDay(zone).toInstant());
+    }
+
     /** fromMonth~toMonth(YYYY-MM, 양 끝 포함) 월별 건수. 건수가 없는 달은 빠진다. */
     public List<MonthlyShipment> monthlyShipments(UUID warehouseId, YearMonth fromMonth, YearMonth toMonth,
                                                   List<String> statuses) {
