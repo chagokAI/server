@@ -16,7 +16,7 @@ HTTP 성공 본문은 {data,meta}, 오류는 {error:{code,message,fieldErrors,re
 | sizeName, linkedProducts, custom | name, linkedProductCount, isCustom |
 | width/depth/height 수정 값 | 상품은 widthMm/depthMm/heightMm, 박스는 innerWidthMm/innerDepthMm/innerHeightMm |
 | matchedBoxId·manualReason·weight | boxSpecId·matchOverrideReason·weightG |
-| current·safety·level·daysLeft | onHandQty·safetyQty·stockLevelPct·daysToStockout |
+| current·safety·level·daysLeft | 목록 각 행의 stock 안 onHandQty·safetyQty·stockLevelPct·daysToStockout |
 | quantity·unitPrice·amount | qty·unitPriceKrw·amountKrw, 포맷 없는 JSON 숫자 |
 | 수정·삭제 | 조회 응답 version을 expectedVersion으로 전달. 409면 새로 조회 |
 | 화면 1페이지 | 요청 page=0. totalPages·counts·summary는 서버 응답 사용 |
@@ -49,6 +49,8 @@ HTTP 성공 본문은 {data,meta}, 오류는 {error:{code,message,fieldErrors,re
 ## 화면별 흐름
 
 - 상품 수정: 상세 조회 → matchCandidates 표시 → PATCH 상품 → 응답·목록 재조회. 부적합한 기존 매칭은 해제된다.
+- 박스 재고/규격 관리: GET box-stocks 한 번으로 규격과 규격별 재고(stock)를 함께 받는다. 두 목록을 화면에서 합치지 않는다.
+- 같은 화면의 재고 정책 수정·입고는 행의 id·version을 그대로 쓴다. 규격을 먼저 PATCH했으면 그 응답의 version을 쓴다.
 - 규격 등록: 이름·분류·치수·단가·공급사·사용 여부를 전송한다. 생성 초기 재고·안전/목표 수량은 선택이다.
 - 안전 재고: safetyDays와 alertEnabled를 저장할 수 있다. 참고 수량이 없으면 safetyQty 직접 입력이 필요하다.
 - 재고 수준·상태는 서버 값을 사용한다. 프론트에서 현재/안전 재고 비율로 다시 계산하지 않는다.
@@ -58,6 +60,10 @@ HTTP 성공 본문은 {data,meta}, 오류는 {error:{code,message,fieldErrors,re
 - 공급사가 여러 개면 발주서가 여러 개다. 한 개 공급사 이름을 전체 품목의 공급사로 고정하지 않는다.
 - 승인 성공 후 이력으로 이동한다. 쿼리 문자열만으로 승인/공급사 전송 성공을 표시하지 않는다.
 - 발주 이력은 from/to 필수. 진행 중 카드는 summary.inProgressCount, 필터 칩은 counts 사용.
+- 발주서 PDF: 상세의 다운로드 버튼은 GET purchase-orders/{id}/pdf 를 호출한다. 응답이 {data,meta}가 아니라 파일이므로
+  공통 JSON 클라이언트 대신 파일 전용 경로로 받는다. 세션 쿠키가 필요해 a[href] 직접 열기 대신 fetch(credentials: include)로
+  받아 Blob 으로 저장한다. 파일명은 응답 헤더의 filename*(RFC 5987)를 디코딩해 쓴다.
+- PDF 생성이 실패하면 서버가 평소의 오류 Envelope를 주므로 같은 방식으로 메시지를 표시한다.
 - 알림은 서버 unreadCount와 createdAt을 사용한다. 읽음 처리 API 두 개는 직접 구현용으로 남겨두었다.
 
 ## 새로고침·참고 계산

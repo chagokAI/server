@@ -24,9 +24,8 @@ class DashboardPlanningTests {
         var boxes = mock(BoxSpecRepository.class);
         when(boxes.findByWarehouseIdAndIsActiveTrue(warehouse)).thenReturn(List.of(box));
         var inventory = mock(InventoryService.class);
-        var page = mock(InventoryPageResponse.class);
-        when(page.summary()).thenReturn(new InventorySummary(1L, 1, 0, List.of(), null, null, null, 14, null, null, 1));
-        when(inventory.getInventories(warehouse, null, null, 0, 1, null)).thenReturn(page);
+        when(inventory.summarize(warehouse))
+                .thenReturn(new InventorySummary(1L, 1, 0, List.of(), null, null, null, 14, null, null, 1));
         var forecasts = mock(ProcurementQueryService.class);
         var summary = Map.<String, Object>of("clientView", Map.of(), "forecast", Map.of("forecast", 30),
                 "simulation", Map.of("monthly_saving", 200),

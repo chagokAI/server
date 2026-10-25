@@ -2,16 +2,12 @@ package com.skala.chagok.domain.box.controller;
 
 import com.skala.chagok.domain.box.dto.BoxSpecCreateRequest;
 import com.skala.chagok.domain.box.dto.BoxSpecResponse;
-import com.skala.chagok.domain.box.dto.BoxSpecPageResponse;
 import com.skala.chagok.domain.box.dto.BoxSpecUpdateRequest;
 import com.skala.chagok.domain.box.service.BoxSpecService;
 import com.skala.chagok.global.response.ApiResponse;
 import com.skala.chagok.global.response.ApiResponses;
-import com.skala.chagok.global.response.PageResponse;
 
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
 
 import java.util.UUID;
 
@@ -36,19 +32,6 @@ public class BoxSpecController {
 
     private final BoxSpecService boxSpecService;
     private final ApiResponses apiResponses;
-
-    /** SPEC-API-01 */
-    @GetMapping
-    public ApiResponse<BoxSpecPageResponse> getBoxSpecs(
-            @PathVariable UUID warehouseId,
-            @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) Boolean active,
-            @RequestParam(required = false) Boolean custom,
-            @RequestParam(defaultValue = "0") @Min(0) int page,
-            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size,
-            @RequestParam(required = false) String sort) {
-        return apiResponses.of(boxSpecService.getBoxSpecs(warehouseId, keyword, active, custom, page, size, sort));
-    }
 
     /** SPEC-API-02: ERD에 규격 버전 이력 테이블이 없어 versionId는 지원하지 않는다. */
     @GetMapping("/{boxSpecId}")

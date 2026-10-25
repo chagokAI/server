@@ -82,17 +82,21 @@ MATCHED_BOX_COUNT는 매칭 박스가 있는 성공 관측 수이며 실제 출�
 version과 상세의 수동 변경 사유를 반환한다. 미매칭은 박스·비율=null이다.
 상품 목록 counts는 검색·카테고리 적용 후 상태 필터를 제외한 개수다.
 
-박스 규격 목록·상세에 linkedProductCount(같은 센터의 활성 연결 상품 수)를 추가했다.
-목록 counts는 ALL/ACTIVE/INACTIVE/CUSTOM, summary는 totalSpecCount/standardSpecCount/customSpecCount다.
-counts·summary에는 검색어만 적용하고 활성·커스텀 필터는 제외한다.
+박스 규격 상세에 linkedProductCount(같은 센터의 활성 연결 상품 수)를 추가했다.
 연결 상품 수가 0이어도 비활성 상품·발주·제안·이벤트 참조나 재고 때문에 삭제가 제한될 수 있다.
 
-재고 항목은 기존 재고·안전/목표 수량·재고 수준·소진일·상태·공급사/납기에 stockUpdatedAt와
+GET box-stocks는 박스 재고/규격 관리 화면 하나가 쓰는 통합 목록이다. 규격 정보·linkedProductCount에
+규격별 재고를 stock으로 묶어 함께 내려주므로 화면에서 두 목록을 코드로 합치지 않는다.
+재고는 box_spec에 함께 저장되어 규격 한 건에 재고 한 건이 늘 따라오고, 재고 정책 수정(INV-API-02)의
+경로 변수와 expectedVersion은 모두 규격의 id·version을 그대로 쓴다.
+counts는 ALL/ACTIVE/INACTIVE/CUSTOM이고 검색어만 적용한다. 활성·커스텀 필터는 제외한다.
+summary는 totalSpecCount/standardSpecCount/customSpecCount와 센터 재고 요약 stock이다.
+stock은 기존 재고·안전/목표 수량·재고 수준·소진일·상태·공급사/납기에 stockUpdatedAt와
 forecastUpdatedAt를 구분해 제공한다. 기록되지 않은 시각은 null이다.
-summary는 검색·상태와 무관한 센터 전체, counts는 검색만 적용한다.
+summary.stock은 검색어·탭과 무관한 센터의 활성 규격 전체 기준이다.
 현재 재고 또는 안전 재고가 없으면 status=UNKNOWN이며 unknownSpecCount에 포함한다.
 현재 재고가 누락된 활성 규격이 있으면 totalOnHandQty=null이다. 누락값을 0으로 합산하지 않는다.
-summary.forecastSource는 proposalId/targetMonth/dataAsOf/generatedAt다.
+summary.stock.forecastSource는 proposalId/targetMonth/dataAsOf/generatedAt다.
 주간 예상 소모량은 이번 달 제안의 월 소모량 × 7 ÷ 이번 달 일수(반올림)인 근사치다.
 전주 비교 근거가 없어 weeklyForecastChangePct는 null이다.
 
@@ -349,6 +353,22 @@ GET purchase-orders/open?boxSpecId=UUID: APPROVED/IN_TRANSIT 중 미입고 수�
 항목은 id,poNo,supplierName,deliveryDate,items[{boxSpec,orderedQty,receivedQty,remainingQty}]다.
 기존 POST purchase-orders 직접 승인 경로는 단일 공급사·현재 단가를 검증하고 공통 envelope로 응답한다.
 신규 화면은 초안 생성·수정 흐름을 사용한다.
+
+## HIST-API-03: 발주서 PDF
+
+`GET W/purchase-orders/{purchaseOrderId}/pdf`는 발주서 상세와 같은 데이터를 A4 PDF로 내려준다.
+문서이므로 {data,meta} Envelope를 쓰지 않고 본문이 파일 그대로다. 조회 권한은 상세 조회와 같다.
+
+- `Content-Type: application/pdf`, `Content-Disposition: attachment`.
+  한글 파일명이라 `filename*=UTF-8''발주서_{poNo}.pdf`(RFC 5987)로 보낸다.
+- 금액·수량·치수는 저장된 값을 그대로 적는다. 품목 치수·이름은 발주 시점의 규격 스냅숏이라
+  이후 규격을 수정해도 이미 만든 발주서 PDF의 내용은 달라지지 않는다.
+- 상세 화면에 없는 납품지(센터명·주소·입고 가능 시간·연락처)를 포함한다. 공급사에 보내는 문서라서다.
+- 값이 없는 칸은 빈칸 대신 —로 적는다. 공급사가 없으면 "미지정"이다.
+- 품목이 한 쪽을 넘으면 쪽을 나누고 표 머리를 다시 그린다.
+- 한글은 OS 폰트에 기대지 않고 번들한 나눔고딕(OFL, `resources/fonts`)을 임베드한다.
+  PDFBox가 사용한 글자만 서브셋으로 넣어 결과 파일은 작다. 컨테이너에 폰트를 따로 설치하지 않는다.
+- 생성에 실패하면 500 INTERNAL_ERROR로 평소의 오류 Envelope를 반환한다.
 
 ## COMMON-API-03: 새로고침 정책
 

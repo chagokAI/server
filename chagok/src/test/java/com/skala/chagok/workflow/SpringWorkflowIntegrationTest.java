@@ -281,7 +281,7 @@ class SpringWorkflowIntegrationTest {
         assertThat(result.path("safetyQty").asInt()).isEqualTo(expected);
         assertThat(result.path("usageSource").asText()).isEqualTo("REFERENCE_FORECAST");
         assertThat(result.path("alertEnabled").asBoolean()).isFalse();
-        mvc.perform(get(base() + "/box-inventories")).andExpect(jsonPath("$.data.items[0].safetyDays").value(7));
+        mvc.perform(get(base() + "/box-stocks")).andExpect(jsonPath("$.data.items[0].stock.safetyDays").value(7));
     }
 
     @Test void absentUsageRejectsDayOnlyCalculationButAllowsExplicitQuantityAndSavesAnAlert() throws Exception {
@@ -305,8 +305,8 @@ class SpringWorkflowIntegrationTest {
         var result = postJson("/inventory-adjustments", Map.of("requestId", UUID.randomUUID().toString(), "boxSpecId", box.toString(),
                 "expectedVersion", 0, "onHandQty", 5, "reason", "실사 확인"), 201);
         assertThat(result.path("deltaQty").asInt()).isEqualTo(-95);
-        mvc.perform(get(base() + "/box-inventories")).andExpect(jsonPath("$.data.summary.totalOnHandQty").value(5))
-                .andExpect(jsonPath("$.data.items[0].status").value("SHORTAGE"));
+        mvc.perform(get(base() + "/box-stocks")).andExpect(jsonPath("$.data.summary.stock.totalOnHandQty").value(5))
+                .andExpect(jsonPath("$.data.items[0].stock.status").value("SHORTAGE"));
     }
 
     @Test void draftsAreIdempotentAndApprovalRejectsOldVersionAndInvalidStateTransitions() throws Exception {
@@ -360,8 +360,9 @@ class SpringWorkflowIntegrationTest {
 
     @Test void unavailableStockStaysUnknownUntilAnExplicitCountedAdjustment() throws Exception {
         jdbc.update("update box_spec set on_hand_qty=null where id=?", box);
-        mvc.perform(get(base() + "/box-inventories")).andExpect(jsonPath("$.data.items[0].status").value("UNKNOWN"))
-                .andExpect(jsonPath("$.data.summary.totalOnHandQty").isEmpty()).andExpect(jsonPath("$.data.summary.unknownSpecCount").value(1));
+        mvc.perform(get(base() + "/box-stocks")).andExpect(jsonPath("$.data.items[0].stock.status").value("UNKNOWN"))
+                .andExpect(jsonPath("$.data.summary.stock.totalOnHandQty").isEmpty())
+                .andExpect(jsonPath("$.data.summary.stock.unknownSpecCount").value(1));
         var movement = postJson("/inventory-adjustments", Map.of("requestId", UUID.randomUUID().toString(), "boxSpecId", box.toString(),
                 "expectedVersion", 0, "onHandQty", 15, "reason", "최초 실사"), 201);
         assertThat(movement.path("beforeQty").isNull()).isTrue();

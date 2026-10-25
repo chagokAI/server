@@ -1,5 +1,6 @@
 package com.skala.chagok.query;
 
+import com.skala.chagok.domain.box.dto.BoxSnapshot;
 import com.skala.chagok.domain.dashboard.controller.DashboardQueryController;
 import com.skala.chagok.domain.dashboard.dto.SceneResponse;
 import com.skala.chagok.domain.dashboard.service.*;
@@ -13,6 +14,9 @@ import com.skala.chagok.domain.procurement.controller.ProcurementQueryController
 import com.skala.chagok.domain.procurement.dto.*;
 import com.skala.chagok.domain.procurement.service.ProcurementQueryService;
 import com.skala.chagok.domain.purchase.controller.PurchaseOrderQueryController;
+import com.skala.chagok.domain.purchase.dto.response.PurchaseOrderResponse;
+import com.skala.chagok.domain.purchase.entity.PurchaseOrderStatus;
+import com.skala.chagok.domain.purchase.service.PurchaseOrderPdfRenderer;
 import com.skala.chagok.domain.purchase.service.PurchaseOrderQueryService;
 import com.skala.chagok.global.config.ChagokProperties;
 import com.skala.chagok.global.error.*;
@@ -20,8 +24,10 @@ import com.skala.chagok.global.response.ApiResponses;
 import java.time.*;
 import java.util.*;
 import org.junit.jupiter.api.*;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -35,14 +41,15 @@ class ReadApiContractTests {
     private final PurchaseOrderQueryService orders = mock(PurchaseOrderQueryService.class);
     private final NotificationQueryService notifications = mock(NotificationQueryService.class);
     private final JobQueryService jobs = mock(JobQueryService.class);
-    private final ApiResponses responses = new ApiResponses(new ChagokProperties(ZoneId.of("Asia/Seoul"), 300,
-            new ChagokProperties.Inventory(3, 14), new ChagokProperties.BoxSize(10, 50)));
+    private final ChagokProperties properties = new ChagokProperties(ZoneId.of("Asia/Seoul"), 300,
+            new ChagokProperties.Inventory(3, 14), new ChagokProperties.BoxSize(10, 50));
+    private final ApiResponses responses = new ApiResponses(properties);
     private MockMvc mvc;
 
-    @BeforeEach void setup() {
+    @BeforeEach void setup() throws Exception {
         mvc = MockMvcBuilders.standaloneSetup(new ProcurementQueryController(procurement, responses),
                 new DashboardQueryController(dashboards, observations, responses),
-                new PurchaseOrderQueryController(orders, responses), new NotificationQueryController(notifications, responses),
+                new PurchaseOrderQueryController(orders, new PurchaseOrderPdfRenderer(properties), responses), new NotificationQueryController(notifications, responses),
                 new JobQueryController(jobs, responses)).setControllerAdvice(new GlobalExceptionHandler()).build();
     }
 
@@ -110,6 +117,25 @@ class ReadApiContractTests {
         mvc.perform(get(path("/procurement-proposals/" + id)).header("X-Request-Id", "contract-1"))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.error.code").value("NOT_FOUND"))
                 .andExpect(jsonPath("$.error.requestId").value("contract-1"));
+    }
+
+    @Test void purchaseOrderPdfIsReturnedAsAnAttachmentInsteadOfTheJsonEnvelope() throws Exception {
+        UUID id = UUID.randomUUID();
+        var items = List.of(new PurchaseOrderResponse.Item(
+                new BoxSnapshot(UUID.randomUUID(), "4호", "중형", 'M', 300, 200, 150), 100, 180, 18000L, true));
+        when(orders.get(warehouseId, id)).thenReturn(new PurchaseOrderResponse(id, "PO-2026-0007", null,
+                PurchaseOrderStatus.APPROVED, Instant.parse("2026-10-20T01:00:00Z"), null, null, null,
+                LocalDate.of(2026, 10, 30), null, null, null, null, null,
+                PurchaseOrderResponse.totalQty(items), PurchaseOrderResponse.totalAmount(items), "KRW", false, 0, items));
+
+        var response = mvc.perform(get(path("/purchase-orders/" + id + "/pdf")))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_PDF))
+                // 한글 파일명은 filename*(RFC 5987)로 나간다.
+                .andExpect(header().string("Content-Disposition",
+                        org.hamcrest.Matchers.containsString("filename*=UTF-8''")))
+                .andReturn().getResponse().getContentAsByteArray();
+        assertThat(response).startsWith("%PDF".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
     }
 
     @Test void validatesNotificationAndHistoryParameters() throws Exception {

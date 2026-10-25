@@ -76,7 +76,7 @@ public record InventoryItemResponse(
     }
 
     /** 재고 수준 = 현재 재고 ÷ 목표 재고 × 100, 정수 반올림, 최대 100. 목표 재고가 없으면 null. */
-    static Integer stockLevelPct(Integer onHandQty, Integer targetQty) {
+    public static Integer stockLevelPct(Integer onHandQty, Integer targetQty) {
         if (onHandQty == null || targetQty == null || targetQty <= 0) {
             return null;
         }

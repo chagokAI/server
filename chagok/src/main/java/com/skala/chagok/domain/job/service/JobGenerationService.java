@@ -79,9 +79,6 @@ public class JobGenerationService {
         job.succeed(proposal.getId(), cost.getId(), until, jobClock.instant());
         jobs.flush();
         // 라이브 재생 관측이 섞인 결과는 라이브 초기화가 지우고 다시 계산한다. 그 결과의 알림도 함께 지울 수 있게 표시한다
-        notices.publish(job.getWarehouse().getId(), "AI", job.getTargetMonth() + " 참고 제안서 생성",
-                "관측 기반 참고 계산이 완료되었습니다. 실제 소모량 예측이 아닙니다.",
-                baseline.liveObservationCount() > 0
-                        ? com.skala.chagok.domain.notification.service.DomainNotificationService.liveLink("/orders") : "/orders");
+        notices.proposalCompleted(job, baseline.liveObservationCount() > 0);
     }
 }

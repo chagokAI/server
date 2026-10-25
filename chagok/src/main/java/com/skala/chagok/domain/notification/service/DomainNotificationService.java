@@ -1,6 +1,7 @@
 package com.skala.chagok.domain.notification.service;
 
 import com.skala.chagok.domain.box.entity.BoxSpec;
+import com.skala.chagok.domain.job.entity.AnalysisJob;
 import com.skala.chagok.domain.notification.entity.Notification;
 import com.skala.chagok.domain.notification.repository.NotificationRepository;
 import com.skala.chagok.domain.user.repository.AppUserRepository;
@@ -46,6 +47,25 @@ public class DomainNotificationService {
     public static String liveLink(String link) {
         return link + (link.contains("?") ? "&" : "?") + LIVE_ORIGIN_QUERY;
     }
+
+    /** 자동 재계산은 조용히 갱신한다. 사용자가 요청한 작업은 제안서·비용 계산을 모두 저장한 뒤 한 번 알린다. */
+    public void proposalCompleted(AnalysisJob job, boolean liveOrigin) {
+        if (!requested(job) || job.getStatus() != AnalysisJob.Status.SUCCEEDED) return;
+        publish(job.getWarehouse().getId(), "AI", "제안서 생성 완료",
+                job.getTargetMonth() + " 제안서와 비용 계산이 완료되었습니다. 결과를 확인해 주세요.",
+                liveOrigin ? liveLink("/orders") : "/orders");
+    }
+
+    public void proposalFailed(AnalysisJob job) {
+        if (!requested(job) || job.getStatus() != AnalysisJob.Status.FAILED) return;
+        publish(job.getWarehouse().getId(), "AI", "제안서 생성 실패",
+                job.getTargetMonth() + " 제안서를 완성하지 못했습니다. 작업 상태에서 실패 원인을 확인해 주세요.", "/orders");
+    }
+
+    private static boolean requested(AnalysisJob job) {
+        return job.getTrigger() == AnalysisJob.Trigger.MANUAL || job.getTrigger() == AnalysisJob.Trigger.RETRY;
+    }
+
     public void publish(UUID warehouseId, String category, String title, String message, String link) {
         var saved = notifications.saveAllAndFlush(users.findByWarehouseId(warehouseId).stream().map(user -> Notification.builder()
                 .recipient(user).category(category).title(title).message(message).link(link).build()).toList());

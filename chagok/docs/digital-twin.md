@@ -20,7 +20,7 @@
 | --- | --- |
 | `GET /simulation-state?limit=1&includeRange=true` | 전체·치수 관측의 최초/최종 시각과 건수 `availableRange` |
 | `GET /simulation-state?from=...&to=...&limit=500` | 지정 구간 관측과 치수, 시각·이벤트 ID 오름차순 |
-| `GET /box-inventories`, `GET /box-specs?active=true` | 박스 내부 치수(mm), 현재 재고, 단가 |
+| `GET /box-stocks?active=true` | 박스 내부 치수(mm), 현재 재고, 단가 |
 | `GET /procurement-proposals` | 센터의 승인된 AI 제안 목록(최근 100건), 신규 규격 여부 |
 | `GET /procurement-proposals/{id}` | 신규 규격, 승인 수량, 분석 기간 |
 | `GET /products/{id}` | 상세 패널의 상품 원본 |
