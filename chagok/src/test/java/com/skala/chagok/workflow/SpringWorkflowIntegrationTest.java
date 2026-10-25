@@ -284,9 +284,15 @@ class SpringWorkflowIntegrationTest {
         mvc.perform(get(base() + "/box-stocks")).andExpect(jsonPath("$.data.items[0].stock.safetyDays").value(7));
     }
 
-    @Test void absentUsageRejectsDayOnlyCalculationButAllowsExplicitQuantityAndSavesAnAlert() throws Exception {
-        patchJson("/box-inventories/" + box + "/policy", Map.of("expectedVersion", 0, "safetyDays", 7), 409);
-        patchJson("/box-inventories/" + box + "/policy", Map.of("expectedVersion", 0, "safetyDays", 7, "safetyQty", 200), 200);
+    @Test void absentUsageStoresAutomaticPolicyAndAllowsExplicitQuantityAndSavesAnAlert() throws Exception {
+        var automatic = patchJson("/box-inventories/" + box + "/policy", Map.of("expectedVersion", 0, "safetyDays", 7), 200);
+        assertThat(automatic.path("safetyDays").asInt()).isEqualTo(7);
+        assertThat(automatic.path("safetyQty").isNull()).isTrue();
+        assertThat(automatic.path("status").asText()).isEqualTo("UNKNOWN");
+        assertThat(jdbc.queryForObject("select safety_qty from box_spec where id=?", Integer.class, box)).isNull();
+        assertThat(jdbc.queryForObject("select safety_days from box_spec where id=?", Integer.class, box)).isEqualTo(7);
+        assertThat(jdbc.queryForObject("select count(*) from notification where recipient_id=? and category='INVENTORY'", Integer.class, user)).isZero();
+        patchJson("/box-inventories/" + box + "/policy", Map.of("expectedVersion", automatic.path("version").asInt(), "safetyDays", 7, "safetyQty", 200), 200);
         assertThat(jdbc.queryForObject("select count(*) from notification where recipient_id=? and category='INVENTORY'", Integer.class, user)).isEqualTo(1);
     }
 
