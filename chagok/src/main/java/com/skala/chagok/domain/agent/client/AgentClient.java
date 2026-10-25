@@ -55,6 +55,24 @@ public class AgentClient {
         return send("GET", "/internal/agent/tasks/" + taskId, null);
     }
 
+    /** 본부 리포트·센터 지침서 조회 (관리자 화면) */
+    public Map<String, Object> get(String path) {
+        return send("GET", path, null);
+    }
+
+    public Map<String, Object> post(String path, Object body) {
+        return send("POST", path, body);
+    }
+
+    public Map<String, Object> put(String path, Object body) {
+        return send("PUT", path, body);
+    }
+
+    /** 센터 지침서 규칙 조정 저장 */
+    public Map<String, Object> patch(String path, Object body) {
+        return send("PATCH", path, body);
+    }
+
     public void approve(String taskId, String decision, String comment) {
         send("POST", "/internal/agent/tasks/" + taskId + "/approval",
                 Map.of("decision", decision, "comment", comment == null ? "" : comment));
