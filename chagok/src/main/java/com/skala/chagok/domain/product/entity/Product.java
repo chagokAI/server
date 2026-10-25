@@ -153,10 +153,12 @@ public class Product {
     }
 
     /**
-     * 자동 매칭을 MATCHED로 보는 최소 충전율(%). 처음 기준은 85%였고, 팀 결정으로 45%로 낮췄다.
-     * 화면의 충전율 정상 구간 색 기준(45% 이상)과 같아 상태 배지와 막대 색이 서로 어긋나지 않는다.
+     * 자동 매칭을 MATCHED로 보는 최소 충전율(%). 처음 기준은 85%였고 팀 결정으로 45%까지 낮췄다가, 45~50%는
+     * 아직 검토가 필요하다고 보아 50%로 정했다.
+     * 화면의 충전율 정상 구간 색 기준(50% 이상)과 같아 상태 배지와 막대 색이 서로 어긋나지 않는다.
+     * 이 값을 바꾸면 이미 저장된 상태는 그대로이므로 MATCH_STATUS_RESYNC_ON_STARTUP으로 한 번 재판정해야 한다.
      */
-    public static final BigDecimal MATCHED_MIN_FILL_PCT = BigDecimal.valueOf(45);
+    public static final BigDecimal MATCHED_MIN_FILL_PCT = BigDecimal.valueOf(50);
 
     /**
      * 상품 마스터의 매칭 상태 라벨을 정한다. REVIEW는 사람과 에이전트가 나중에 박스 구성을 개선하려고 보는 표시이며,

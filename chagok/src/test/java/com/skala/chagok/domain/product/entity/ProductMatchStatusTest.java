@@ -10,8 +10,8 @@ import org.junit.jupiter.api.Test;
 class ProductMatchStatusTest {
 
     @Test void automaticMatchBecomesMatchedFromTheMinimumFillRate() {
-        assertThat(Product.matchStatusFor("DIMENSIONS", new BigDecimal("44.99"))).isEqualTo(MatchStatus.REVIEW);
-        assertThat(Product.matchStatusFor("DIMENSIONS", new BigDecimal("45.00"))).isEqualTo(MatchStatus.MATCHED);
+        assertThat(Product.matchStatusFor("DIMENSIONS", new BigDecimal("49.99"))).isEqualTo(MatchStatus.REVIEW);
+        assertThat(Product.matchStatusFor("DIMENSIONS", new BigDecimal("50.00"))).isEqualTo(MatchStatus.MATCHED);
         assertThat(Product.matchStatusFor(null, new BigDecimal("68.87"))).isEqualTo(MatchStatus.MATCHED);
     }
 
