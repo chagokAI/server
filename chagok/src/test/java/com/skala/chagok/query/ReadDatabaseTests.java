@@ -65,7 +65,7 @@ class ReadDatabaseTests {
     private final ChagokProperties properties = new ChagokProperties(ZoneId.of("Asia/Seoul"), 300, new ChagokProperties.Inventory(3, 14), new ChagokProperties.BoxSize(10, 50));
 
     @BeforeAll static void database() throws Exception {
-        String url = "jdbc:h2:mem:read-api;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
+        String url = "jdbc:h2:mem:read-api;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;NON_KEYWORDS=DAY";
         StringWriter schema = new StringWriter();
         registry = new StandardServiceRegistryBuilder()
                 .applySetting("hibernate.dialect", PostgreSQLDialect.class.getName())
@@ -90,6 +90,11 @@ class ReadDatabaseTests {
         RunScript.execute(schemaConnection, new StringReader(schema.toString().replace("vector(384)", "real array")
                 .replace("timestamptz", "timestamp with time zone")));
         jdbc = new JdbcTemplate(dataSource);
+        jdbc.execute("""
+                create table item_event_daily (warehouse_id uuid, day date, product_id uuid, box_spec_id uuid,
+                    status varchar(10), failure_reason varchar(40), source varchar(10), shipments bigint,
+                    fill_rate_sum numeric(16,2))
+                """);
     }
 
     @BeforeEach void prepare() {
@@ -136,6 +141,47 @@ class ReadDatabaseTests {
         assertThat(values.getFirst().at()).isEqualTo(Instant.parse("2026-10-18T15:00:00Z"));
         assertThat(values.getFirst().value()).isEqualByComparingTo("85");
         assertThat(values.getFirst().sampleCount()).isEqualTo(2);
+    }
+
+    @Test void dailyMetricsUseShipmentWeightsAndDoNotCountRetainedRawTwice() {
+        jdbc.update("insert into item_event_daily (warehouse_id, day, status, source, shipments, fill_rate_sum) values (?, date '2026-09-01', 'SUCCEEDED', 'hist', 3, 240)", warehouseId);
+        jdbc.update("insert into item_event_daily (warehouse_id, day, status, source, shipments, fill_rate_sum) values (?, date '2026-09-01', 'SUCCEEDED', 'hist', 1, 20)", warehouseId);
+        event(warehouseId, "retained", "2026-09-01T00:00:00Z", "SUCCEEDED", "90");
+        event(warehouseId, "fallback", "2026-09-02T00:00:00Z", "SUCCEEDED", "50");
+        var queries = new MetricQueryRepository(new NamedParameterJdbcTemplate(jdbc));
+        var from = Instant.parse("2026-08-31T15:00:00Z");
+        var to = Instant.parse("2026-09-02T15:00:00Z");
+        var counts = queries.aggregate(warehouseId, from, to, "Asia/Seoul", MetricSeries.Bucket.day,
+                MetricSeries.Metric.OBSERVATION_COUNT, null);
+        assertThat(counts).extracting(MetricQueryRepository.Aggregate::sampleCount).containsExactly(4L, 1L);
+        var fills = queries.aggregate(warehouseId, from, to, "Asia/Seoul", MetricSeries.Bucket.day,
+                MetricSeries.Metric.AVG_FILL_RATE_PCT, null);
+        assertThat(fills.getFirst().value()).isEqualByComparingTo("65");
+        assertThat(fills.getFirst().sampleCount()).isEqualTo(4);
+        var failures = queries.aggregate(warehouseId, from, to, "Asia/Seoul", MetricSeries.Bucket.day,
+                MetricSeries.Metric.FAILED_COUNT, null);
+        assertThat(failures).allSatisfy(point -> assertThat(point.value()).isEqualByComparingTo("0"));
+    }
+
+    @Test void archivedBoxReferencesRemainVisibleAfterRawHistoryIsGone() {
+        UUID box = UUID.randomUUID();
+        jdbc.update("insert into item_event_daily (warehouse_id, day, box_spec_id, status, source, shipments) values (?, date '2026-09-01', ?, 'SUCCEEDED', 'hist', 50)", warehouseId, box);
+        var events = repositories.getRepository(ItemEventRepository.class);
+        assertThat(events.existsByBoxSpecId(box)).isFalse();
+        assertThat(events.existsDailyByBoxSpecId(box)).isTrue();
+        assertThat(events.existsDailyByBoxSpecId(UUID.randomUUID())).isFalse();
+    }
+
+    @Test void todayUsesFreshRawInsteadOfDailySnapshotAndExcludesFutureEvents() {
+        var today = LocalDate.now(properties.timezone());
+        var from = today.atStartOfDay(properties.timezone()).toInstant();
+        jdbc.update("insert into item_event_daily (warehouse_id, day, status, source, shipments, fill_rate_sum) values (?, ?, 'SUCCEEDED', 'hist', 999, 9990)", warehouseId, today);
+        event(warehouseId, "today", from.toString(), "SUCCEEDED", "70");
+        event(warehouseId, "future", Instant.now().plusSeconds(3600).toString(), "SUCCEEDED", "10");
+        var counts = new MetricQueryRepository(new NamedParameterJdbcTemplate(jdbc)).aggregate(warehouseId, from,
+                from.plusSeconds(86400), "Asia/Seoul", MetricSeries.Bucket.day, MetricSeries.Metric.OBSERVATION_COUNT, null);
+        assertThat(counts).hasSize(1);
+        assertThat(counts.getFirst().sampleCount()).isEqualTo(1);
     }
 
     @Test void simulationRangeUsesExclusiveCompositeCursorAndIncludesExactTimeBoundaries() {

@@ -1,10 +1,9 @@
 package com.skala.chagok.domain.job.repository;
 
-import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.*;
 
-import com.skala.chagok.domain.event.LiveEventIds;
+import com.skala.chagok.domain.event.repository.ShipmentHistorySql;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -27,26 +26,25 @@ public class ObservationBaselineRepository {
 
     /** 일시 품절·대체 포장 때문에 원래 필요한 규격의 발주 수요가 줄지 않도록 한다. */
     public Baseline demand(UUID warehouseId, Instant from, Instant until) {
-        return aggregate(warehouseId, from, until, """
-                select b.id as box_spec_id, count(*) as observations,
-                    count(*) filter (where ideal.id is null) as observed,
-                    count(*) filter (where ideal.id is not null) as estimated,
-                    count(*) filter (where e.event_id like :livePrefix) as live
-                from item_event e
+        return aggregate(warehouseId, from, until, ShipmentHistorySql.CTE + """
+                select b.id as box_spec_id, sum(e.shipments) as observations,
+                    sum(e.shipments) filter (where ideal.id is null) as observed,
+                    sum(e.shipments) filter (where ideal.id is not null) as estimated,
+                    sum(e.shipments) filter (where e.source = 'live') as live
+                from shipment_history e
                 left join product p on p.id = e.product_id and p.warehouse_id = e.warehouse_id and p.is_active = true
                 left join box_spec ideal on ideal.id = p.matched_box_spec_id
                     and ideal.warehouse_id = e.warehouse_id and ideal.is_active = true
                 join box_spec b on b.id = coalesce(ideal.id, e.box_spec_id)
                     and b.warehouse_id = e.warehouse_id and b.is_active = true
-                where e.warehouse_id = :warehouseId
-                    and (e.status = 'SUCCEEDED' or (e.status = 'WAITING' and e.measurement->>'dlStatus' = 'known'))
-                    and e.occurred_at >= :from and e.occurred_at < :until group by b.id
+                where (e.status = 'SUCCEEDED' or (e.status = 'WAITING'
+                    and (e.failure_reason = 'NO_AVAILABLE_BOX' or e.measurement->>'dlStatus' = 'known')))
+                group by b.id
                 """);
     }
 
     private Baseline aggregate(UUID warehouseId, Instant from, Instant until, String query) {
-        Map<String, Object> params = Map.of("warehouseId", warehouseId, "from", Timestamp.from(from), "until", Timestamp.from(until),
-                "livePrefix", LiveEventIds.PREFIX + "%");
+        Map<String, Object> params = ShipmentHistorySql.parameters(warehouseId, from, until, java.time.ZoneId.of("Asia/Seoul"));
         Map<UUID, Long> counts = new HashMap<>();
         long[] sources = {0, 0, 0};
         jdbc.query(query, params, rs -> {

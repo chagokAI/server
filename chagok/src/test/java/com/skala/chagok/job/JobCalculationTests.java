@@ -28,6 +28,13 @@ class JobCalculationTests {
         assertThat(box.getOnHandQty()).isEqualTo(500);
     }
 
+    @Test void dailyHistoryAndPartialTodayUseTheSameElapsedPeriodForDemandAndSafety() {
+        var box = BoxSpec.builder().onHandQty(0).safetyDays(7).unitPriceKrw(100).build();
+        var line = calculator.calculate(box, 2850, YearMonth.of(2026, 11), new java.math.BigDecimal("28.5"));
+        assertThat(line.forecastQty()).isEqualTo(3000);
+        assertThat(line.safetyQty()).isEqualTo(700);
+    }
+
     @Test void zeroObservedForOneBoxIsZeroReferenceDemand() {
         var box = BoxSpec.builder().onHandQty(0).safetyQty(20).unitPriceKrw(100).build();
         var line = calculator.calculate(box, 0, YearMonth.of(2026, 11));

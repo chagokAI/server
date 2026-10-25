@@ -1,6 +1,7 @@
 package com.skala.chagok.domain.agent.controller;
 
 import com.skala.chagok.domain.agent.client.AgentClient;
+import com.skala.chagok.domain.agent.repository.HqReportRepository;
 import com.skala.chagok.global.auth.CurrentUserProvider;
 import com.skala.chagok.global.error.BusinessException;
 import com.skala.chagok.global.error.ErrorCode;
@@ -14,14 +15,15 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 /**
- * 관리자(DIRECTOR) 화면 '센터별 리포트/지침서' API. 본부 리포트와 센터 지침서는 에이전트 서버가 만들고 저장하므로
- * 여기서는 그대로 중계만 한다(SecurityConfig: /api/v1/admin/** 는 DIRECTOR).
+ * 관리자(DIRECTOR) 화면 '센터별 리포트/지침서' API. 저장된 본부 리포트는 DB에서 읽고,
+ * 생성·승인·지침서 편집은 에이전트에 요청한다(SecurityConfig: /api/v1/admin/** 는 DIRECTOR).
  */
 @Validated @RestController @RequiredArgsConstructor @RequestMapping("/api/v1/admin")
 public class AgentAdminController {
     private final AgentClient agent;
     private final ApiResponses responses;
     private final CurrentUserProvider users;
+    private final HqReportRepository hqReports;
 
     public record GuideUpdateRequest(@NotNull Map<String, Object> changes) {}
 
@@ -35,7 +37,7 @@ public class AgentAdminController {
     /** 만들어 둔 본부 통합 효율화 리포트 월 목록 */
     @GetMapping("/hq-reports")
     public ApiResponse<Map<String, Object>> reports() {
-        return responses.of(call(() -> agent.get("/internal/agent/hq-reports")));
+        return responses.of(hqReports.list());
     }
 
     /** 리포트 만들기 전 센터별 제안서 현황(그 월까지 저장된 제안서가 있어야 효과를 모을 수 있다) */
@@ -67,7 +69,7 @@ public class AgentAdminController {
     /** 그 월의 본부 리포트 HTML {month, html} */
     @GetMapping("/hq-reports/{month:\\d{4}-\\d{2}}")
     public ApiResponse<Map<String, Object>> report(@PathVariable String month) {
-        return responses.of(call(() -> agent.get("/internal/agent/hq-reports/" + month)));
+        return responses.of(hqReports.get(month));
     }
 
     /** 지침서 화면 센터 목록 */
