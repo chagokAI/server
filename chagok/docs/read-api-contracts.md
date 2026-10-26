@@ -137,8 +137,9 @@ cost_forecast 저장 모델을 사용한다. 현재 실행기는 OBSERVATION_BAS
 
 `GET W/purchase-orders?from=2026-08-01&to=2026-10-19`
 
-발주서 이력 화면은 `historyOnly=true`로 APPROVED/IN_TRANSIT/RECEIVED만 조회한다.
-페이지 결과·전체 건수·상태별 counts·summary 모두 승인대기와 반려를 제외한 같은 범위를 사용한다.
+발주서 이력 화면과 대시보드의 최근 발주는 `historyOnly=true`로 APPROVED/RECEIVED만 조회한다.
+페이지 결과·전체 건수·상태별 counts·summary 모두 승인 대기·배송 중·반려를 제외한 같은 범위를 사용한다.
+이 범위의 pendingCount는 0, inProgressCount는 APPROVED 건수다.
 기존 업무 API 호환을 위해 생략 시 false이며 초안/반려 조회도 가능하다. 저장된 발주 데이터는 삭제하지 않는다.
 
 - from/to 필수, 센터 시간대 양 끝 날짜 포함, 최대 5년
@@ -170,6 +171,8 @@ pendingCount는 PENDING, inProgressCount는 APPROVED+IN_TRANSIT이다.
 - unreadCount: 본인의 해당 센터 전체 미읽음 수. 카테고리·페이지·unreadOnly와 무관
 
 본인에게 온 알림만 조회하며 다른 센터 소속이면 403이다. 기존 제목 없는 알림은 message를 title에도 제공한다.
+본부장(DIRECTOR)은 새 알림 수신 대상에서 제외한다. 기존 알림도 조회 목록은 빈 배열, totalElements·totalPages·unreadCount는 0으로 반환한다.
+본부장의 실시간 구독(`GET W/notifications/stream`)과 아래 읽음 처리 API는 403이다. 화면에서도 알림 메뉴·배지·팝업·설정을 숨기고 전체 알림 경로는 본부 대시보드로 돌려보낸다.
 CurrentUserProvider는 세션 사용자 ID로 본인을 조회한다. 명시적인 인증 비활성 테스트에서만 기존 첫 사용자 방식을 사용한다.
 
 ## NOTI-API-02~03: 알림 읽음 처리
