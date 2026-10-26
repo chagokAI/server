@@ -114,25 +114,23 @@ public class PurchaseOrder {
     public void ship() { this.status = PurchaseOrderStatus.IN_TRANSIT; }
 
     /**
-     * 제안서를 바탕으로 승인된 발주서를 생성한다.
-     * 화면에서 요청자와 승인자가 같은 사용자이므로 두 항목에 같은 사용자가 들어간다.
+     * 제안서를 바탕으로 승인 대기 발주서를 생성한다.
+     * 승인자·승인 시각은 수량을 확인하고 승인(approve)할 때 기록한다.
      */
-    public static PurchaseOrder createApproved(Warehouse warehouse,
-                                               String poNo,
-                                               ProcurementProposal proposal,
-                                               Supplier supplier,
-                                               AppUser user,
-                                               LocalDate requestedDeliveryDate) {
+    public static PurchaseOrder createPending(Warehouse warehouse,
+                                              String poNo,
+                                              ProcurementProposal proposal,
+                                              Supplier supplier,
+                                              AppUser user,
+                                              LocalDate requestedDeliveryDate) {
         return PurchaseOrder.builder()
                 .warehouse(warehouse)
                 .poNo(poNo)
                 .proposal(proposal)
                 .supplier(supplier)
-                .status(PurchaseOrderStatus.APPROVED)
+                .status(PurchaseOrderStatus.PENDING)
                 .requestedDeliveryDate(requestedDeliveryDate)
                 .requestedBy(user)
-                .approver(user)
-                .approvedAt(Instant.now())
                 .build();
     }
 }

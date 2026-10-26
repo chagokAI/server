@@ -47,8 +47,10 @@ public class AgentClient {
     public boolean configured() { return !baseUrl.isBlank() && !token.isBlank(); }
 
     public Map<String, Object> createTask(String taskId, UUID warehouseId, String targetMonth) {
+        // jobId 를 작업마다 다르게 줘야 제안서 id(uuid5(jobId))가 새로 생긴다. 생략하면 같은 달 제안서를 덮어써
+        // 이전에 승인한 발주서가 새 제안서에 그대로 붙어 '승인 완료'로 보인다.
         return send("POST", "/internal/agent/tasks",
-                Map.of("taskId", taskId, "warehouseId", warehouseId.toString(), "targetMonth", targetMonth));
+                Map.of("taskId", taskId, "jobId", taskId, "warehouseId", warehouseId.toString(), "targetMonth", targetMonth));
     }
 
     public Map<String, Object> getTask(String taskId) {

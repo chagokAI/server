@@ -51,9 +51,9 @@
 - [x] SPEC-API-03~05 — 규격 생성·수정·미사용이고 참조/재고 없는 규격 삭제(막히면 409 details)
 - [x] (추가) `GET /api/v1/box-materials` — 재질 드롭다운 선택지 `[{code, label}]`
 - [x] INV-API-02 — 안전 재고 정책 수정
-- [x] 기존 발주 승인 — `POST /api/v1/warehouses/{warehouseId}/purchase-orders` — APPROVED 발주서 생성·품목 규격 snapshot 저장
+- [x] 기존 발주 생성 — `POST /api/v1/warehouses/{warehouseId}/purchase-orders` — PENDING 발주서 생성·품목 규격 snapshot 저장
 
-기존 발주 승인 POST는 단일 공급사 직접 승인용 호환 경로다. 신규 화면은 from-proposal → PATCH 흐름을 사용한다.
+기존 발주 생성 POST는 단일 공급사 직접 생성용 호환 경로다. 생성만 하고 승인은 PATCH로 한다. 신규 화면은 from-proposal → PATCH 흐름을 사용한다.
 JOB-API-01~03과 DB 대기열 실행기·5분 정기 스케줄러를 구현했다.
 성공 관측 이력 기반 참고 계산을 사용하며 실제 소모량·학습 모델·Kafka 연동 변경은 이번 범위에 포함하지 않는다.
 인증은 기본 활성화된다. 세션·CSRF·초기 로컬 계정 생성 방법은 [로컬 개발](local-development.md)을 참고한다.
