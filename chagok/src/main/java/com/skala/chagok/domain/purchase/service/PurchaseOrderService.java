@@ -48,8 +48,9 @@ public class PurchaseOrderService {
     private final com.skala.chagok.global.config.ChagokProperties properties;
 
     /**
-     * 발주 제안서를 승인해 박스 주문 발주서를 생성한다.
-     * 화면에서 수정한 품목·수량과 납품 희망일을 그대로 발주서에 담아 APPROVED 상태로 저장한다.
+     * 발주 제안서로 박스 주문 발주서를 생성한다.
+     * 화면에서 수정한 품목·수량과 납품 희망일을 그대로 발주서에 담아 PENDING 상태로 저장하고,
+     * 승인은 PATCH 로 따로 한다.
      */
     @Transactional
     public PurchaseOrderCreateResponse create(UUID warehouseId, PurchaseOrderCreateRequest request) {
@@ -71,7 +72,7 @@ public class PurchaseOrderService {
         var user = currentUserProvider.getCurrentUser();
         if (user.getWarehouse() == null || !warehouseId.equals(user.getWarehouse().getId()))
             throw new com.skala.chagok.global.error.BusinessException(com.skala.chagok.global.error.ErrorCode.FORBIDDEN);
-        PurchaseOrder purchaseOrder = PurchaseOrder.createApproved(
+        PurchaseOrder purchaseOrder = PurchaseOrder.createPending(
                 proposal.getWarehouse(),
                 generatePoNo(),
                 proposal,

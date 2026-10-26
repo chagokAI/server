@@ -7,13 +7,13 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * 박스 주문 발주서 생성(승인) 결과.
+ * 박스 주문 발주서 생성 결과.
  *
  * @param success         성공 여부
  * @param purchaseOrderId 생성된 발주서 ID
  * @param poNo            서버가 발번한 발주번호
  * @param status          발주서 상태
- * @param approvedAt      승인 시각
+ * @param approvedAt      승인 시각(승인 전에는 null)
  */
 public record PurchaseOrderCreateResponse(
         boolean success,

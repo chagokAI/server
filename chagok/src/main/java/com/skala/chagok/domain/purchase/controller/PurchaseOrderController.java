@@ -26,7 +26,7 @@ public class PurchaseOrderController {
     private final PurchaseOrderService purchaseOrderService;
     private final com.skala.chagok.global.response.ApiResponses responses;
 
-    /** 발주 제안서를 승인해 박스 주문 발주서를 생성한다. */
+    /** 발주 제안서로 승인 대기 박스 주문 발주서를 생성한다. */
     @PostMapping
     public ResponseEntity<com.skala.chagok.global.response.ApiResponse<PurchaseOrderCreateResponse>> create(
             @PathVariable UUID warehouseId,
