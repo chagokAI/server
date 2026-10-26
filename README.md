@@ -1,4 +1,4 @@
-# 차곡 백엔드
+# Chagok Core Server
 
 Core APIs for warehouse operations and AI-powered packaging workflows.
 
