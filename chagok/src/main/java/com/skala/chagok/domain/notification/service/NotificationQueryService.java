@@ -22,6 +22,9 @@ public class NotificationQueryService {
                                            boolean unreadOnly, int page, int size, String sort) {
         warehouses.require(warehouseId);
         var user = users.getCurrentUser();
+        var pageable = PageRequests.of(page, size, sort, Map.of("createdAt", "createdAt"), "createdAt,desc");
+        if ("DIRECTOR".equals(user.getRole()))
+            return new NotificationPageResponse(List.of(), pageable.getPageNumber(), pageable.getPageSize(), 0, 0, 0);
         if (user.getWarehouse() == null || !warehouseId.equals(user.getWarehouse().getId()))
             throw new BusinessException(ErrorCode.FORBIDDEN);
         UUID userId = user.getId();
@@ -30,7 +33,7 @@ public class NotificationQueryService {
                 cb.equal(root.get("recipient").get("warehouse").get("id"), warehouseId));
         if (category != null) spec = spec.and((root, query, cb) -> cb.equal(root.get("category"), category.name()));
         if (unreadOnly) spec = spec.and((root, query, cb) -> cb.isNull(root.get("readAt")));
-        var result = notifications.findAll(spec, PageRequests.of(page, size, sort, Map.of("createdAt", "createdAt"), "createdAt,desc"));
+        var result = notifications.findAll(spec, pageable);
         return new NotificationPageResponse(result.stream().map(NotificationPageResponse.Item::from).toList(),
                 result.getNumber(), result.getSize(), result.getTotalElements(), result.getTotalPages(),
                 notifications.countByRecipientIdAndRecipientWarehouseIdAndReadAtIsNull(userId, warehouseId));

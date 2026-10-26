@@ -67,7 +67,9 @@ public class DomainNotificationService {
     }
 
     public void publish(UUID warehouseId, String category, String title, String message, String link) {
-        var saved = notifications.saveAllAndFlush(users.findByWarehouseId(warehouseId).stream().map(user -> Notification.builder()
+        var saved = notifications.saveAllAndFlush(users.findByWarehouseId(warehouseId).stream()
+                .filter(user -> !"DIRECTOR".equals(user.getRole()))
+                .map(user -> Notification.builder()
                 .recipient(user).category(category).title(title).message(message).link(link).build()).toList());
         saved.forEach(notification -> events.publishEvent(new NotificationChanged(
                 notification.getRecipient().getId(), NotificationPageResponse.Item.from(notification))));

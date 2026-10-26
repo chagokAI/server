@@ -23,7 +23,7 @@ public class NotificationStreamController {
         try {
             warehouses.require(warehouseId);
             var user = users.getCurrentUser();
-            if (user.getWarehouse() == null || !warehouseId.equals(user.getWarehouse().getId()))
+            if ("DIRECTOR".equals(user.getRole()) || user.getWarehouse() == null || !warehouseId.equals(user.getWarehouse().getId()))
                 throw new BusinessException(ErrorCode.FORBIDDEN);
             return ResponseEntity.ok().header("Cache-Control", "no-cache").header("X-Accel-Buffering", "no")
                     .body(hub.subscribe(user.getId(), request.getSession(false)));

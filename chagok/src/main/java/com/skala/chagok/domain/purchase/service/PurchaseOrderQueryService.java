@@ -48,7 +48,7 @@ public class PurchaseOrderQueryService {
                     cb.like(cb.lower(root.join("supplier", JoinType.LEFT).get("name")), pattern, LikePatterns.ESCAPE)));
         }
         if (historyOnly) specification = specification.and((root, query, cb) -> root.get("status").in(
-                PurchaseOrderStatus.APPROVED, PurchaseOrderStatus.IN_TRANSIT, PurchaseOrderStatus.RECEIVED));
+                PurchaseOrderStatus.APPROVED, PurchaseOrderStatus.RECEIVED));
         if (status != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("status"), status));
         var pageable = PageRequests.of(page, size, sort, SORTS, "createdAt,desc");
         var amountSort = pageable.getSort().getOrderFor("totalAmountKrw");
@@ -71,7 +71,7 @@ public class PurchaseOrderQueryService {
         Map<UUID, List<PurchaseOrderItem>> grouped = ids.isEmpty() ? Map.of() : items.findByPurchaseOrderIdIn(ids).stream()
                 .collect(Collectors.groupingBy(item -> item.getId().getPurchaseOrderId()));
         var totals = summaries.summarize(warehouseId, start, until, keyword).stream()
-                .filter(total -> !historyOnly || Set.of("APPROVED", "IN_TRANSIT", "RECEIVED").contains(total.status())).toList();
+                .filter(total -> !historyOnly || Set.of("APPROVED", "RECEIVED").contains(total.status())).toList();
         Map<String, Long> counts = new LinkedHashMap<>();
         counts.put("ALL", totals.stream().mapToLong(PurchaseHistorySummaryRepository.StatusTotals::count).sum());
         for (PurchaseOrderStatus value : PurchaseOrderStatus.values()) counts.put(value.name(), 0L);

@@ -260,6 +260,40 @@ class ReadDatabaseTests {
         assertThatThrownBy(() -> service.get(warehouseId, UUID.randomUUID())).isInstanceOf(BusinessException.class);
     }
 
+    @Test void historyIncludesOnlyApprovedAndReceivedInRowsPaginationAndSummary() {
+        UUID box = UUID.randomUUID();
+        jdbc.update("insert into box_spec (id, warehouse_id, version) values (?, ?, 0)", box, warehouseId);
+        for (PurchaseOrderStatus status : PurchaseOrderStatus.values()) {
+            UUID order = order("PO-" + status.name(), status.name(), null);
+            line(order, box, 10, 100);
+        }
+        var service = new PurchaseOrderQueryService(repositories.getRepository(PurchaseOrderRepository.class),
+                repositories.getRepository(PurchaseOrderItemRepository.class),
+                new PurchaseHistorySummaryRepository(new NamedParameterJdbcTemplate(jdbc)),
+                new WarehouseQueryGuard(repositories.getRepository(WarehouseRepository.class)), properties);
+        var from = LocalDate.of(2026, 10, 1);
+        var to = LocalDate.of(2026, 10, 31);
+        var history = service.list(warehouseId, from, to, null, null, 0, 20, null, true);
+        assertThat(history.items()).extracting(row -> row.status())
+                .containsExactlyInAnyOrder(PurchaseOrderStatus.APPROVED, PurchaseOrderStatus.RECEIVED);
+        assertThat(history.totalElements()).isEqualTo(2);
+        assertThat(history.counts()).containsEntry("ALL", 2L).containsEntry("APPROVED", 1L)
+                .containsEntry("RECEIVED", 1L).containsEntry("PENDING", 0L)
+                .containsEntry("IN_TRANSIT", 0L).containsEntry("REJECTED", 0L);
+        assertThat(history.summary().totalOrderCount()).isEqualTo(2);
+        assertThat(history.summary().totalAmountKrw()).isEqualByComparingTo("2000");
+        assertThat(history.summary().pendingCount()).isZero();
+        assertThat(history.summary().inProgressCount()).isEqualTo(1);
+        var paged = service.list(warehouseId, from, to, null, null, 1, 1, null, true);
+        assertThat(paged.items()).hasSize(1);
+        assertThat(paged.totalPages()).isEqualTo(2);
+        for (PurchaseOrderStatus excluded : List.of(PurchaseOrderStatus.PENDING,
+                PurchaseOrderStatus.IN_TRANSIT, PurchaseOrderStatus.REJECTED)) {
+            assertThat(service.list(warehouseId, from, to, null, excluded, 0, 20, null, true).items()).isEmpty();
+        }
+        assertThat(service.list(warehouseId, from, to, null, null, 0, 20, null, false).totalElements()).isEqualTo(5);
+    }
+
     @Test void boxListCountsIgnoreTabsButConnectedProductsExcludeInactiveProducts() {
         UUID first = UUID.randomUUID(), second = UUID.randomUUID();
         jdbc.update("insert into box_spec (id, warehouse_id, code, is_active, is_custom, version) values (?, ?, 'S-1', true, false, 0)", first, warehouseId);

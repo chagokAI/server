@@ -15,6 +15,19 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 class NotificationStreamControllerTest {
+    @Test void directorCannotSubscribeEvenToTheirOwnWarehouse() throws Exception {
+        var users = mock(CurrentUserProvider.class);
+        var warehouses = mock(WarehouseQueryGuard.class);
+        var hub = mock(NotificationStreamHub.class);
+        var warehouse = UUID.randomUUID();
+        when(users.getCurrentUser()).thenReturn(AppUser.builder().id(UUID.randomUUID()).role("DIRECTOR")
+                .warehouse(Warehouse.builder().id(warehouse).build()).build());
+        var mvc = MockMvcBuilders.standaloneSetup(new NotificationStreamController(users, warehouses, hub)).build();
+        mvc.perform(get("/api/v1/warehouses/" + warehouse + "/notifications/stream")
+                .accept("text/event-stream")).andExpect(status().isForbidden());
+        verifyNoInteractions(hub);
+    }
+
     @Test void rejectsOtherWarehousesAndAlwaysUsesTheAuthenticatedRecipient() throws Exception {
         var users = mock(CurrentUserProvider.class);
         var warehouses = mock(WarehouseQueryGuard.class);

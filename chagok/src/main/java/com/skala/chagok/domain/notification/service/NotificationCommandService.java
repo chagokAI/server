@@ -47,7 +47,7 @@ public class NotificationCommandService {
     private AppUser requireMember(UUID warehouseId) {
         warehouses.require(warehouseId);
         AppUser user = users.getCurrentUser();
-        if (user.getWarehouse() == null || !warehouseId.equals(user.getWarehouse().getId()))
+        if ("DIRECTOR".equals(user.getRole()) || user.getWarehouse() == null || !warehouseId.equals(user.getWarehouse().getId()))
             throw new BusinessException(ErrorCode.FORBIDDEN);
         return user;
     }
